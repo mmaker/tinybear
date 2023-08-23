@@ -1,0 +1,36 @@
+[package]
+name = "tinybear"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[patch.crates-io]
+ark-std = {git = "https://github.com/arkworks-rs/utils"}
+ark-ec = {git = "https://github.com/arkworks-rs/algebra"}
+ark-ff = {git = "https://github.com/arkworks-rs/algebra"}
+ark-curve25519 = {git = "https://github.com/arkworks-rs/curves"}
+ark-serialize= {git = "https://github.com/arkworks-rs/algebra"}
+nimue = {git = "https://github.com/mmaker/nimue"}
+
+[dependencies]
+ark-ec = {version="0.4.2", features=["std", "parallel"]}
+ark-ff = {version="0.4.2", features=["asm", "std", "parallel"]}
+ark-serialize = "0.4.2"
+ark-std = {version="0.4.0", features=["std", "parallel", "getrandom"]}
+nimue = "0.0.1-alpha"
+rand = "0.8.5"
+
+[dev-dependencies]
+ark-curve25519 = "0.4.0"
+criterion = "0.5.1"
+hex = "0.4.3"
+
+[[bench]]
+harness = false
+name = "bench_prove"
+
+
+[[bench]]
+harness = false
+name = "bench_aes"
