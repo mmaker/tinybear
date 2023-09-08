@@ -1,13 +1,20 @@
 use ark_ff::PrimeField;
-use nimue::ark_plugins::{Absorbable, Absorbs, AlgebraicIO, FieldChallenges};
-use nimue::{Arthur, DefaultHash, IOPattern, Merlin};
+use nimue::plugins::arkworks::prelude::*;
+use nimue::{Arthur, DuplexHash, IOPattern, Merlin};
 
-pub(crate) fn iopattern<F: PrimeField + Absorbable<u8>>(io: IOPattern, n: usize) -> IOPattern {
-    let mut io = AlgebraicIO::<DefaultHash>::from(io);
-    for _ in 0..ark_std::log2(n) {
-        io = io.absorb_field::<F>(2).squeeze_field::<F>(1)
+pub trait SumcheckIO {
+    fn sumcheck_io<F: PrimeField>(self, n: usize) -> Self;
+}
+
+impl<H: DuplexHash> SumcheckIO for IOPattern<H> {
+    fn sumcheck_io<F: PrimeField>(mut self, n: usize) -> Self {
+        for _ in 0..ark_std::log2(n) {
+            self = self
+                .absorb_serializable::<F>(2, "sumcheck-message")
+                .squeeze_pfelt::<F>(1, "sumcheck-chal")
+        }
+        self
     }
-    io.into()
 }
 
 fn fold_inplace<F: PrimeField>(f: &mut Vec<F>, r: F) {
@@ -44,12 +51,19 @@ pub fn batch_sumcheck<F>(
     batch_chal: F,
 ) -> (Vec<F>, Vec<[F; 2]>)
 where
-    F: PrimeField + Absorbable<u8>,
+    F: PrimeField,
 {
     let mut msgs = Vec::new();
     let mut chals = Vec::new();
     let mut vs = [vs[0].to_vec(), vs[1].to_vec()];
     let mut ws = [ws[0].to_vec(), ws[1].to_vec()];
+    println!(
+        "{} {} {} {}",
+        ws[0].len(),
+        ws[1].len(),
+        vs[0].len(),
+        vs[1].len()
+    );
     while ws[0].len() + vs[0].len() + vs[1].len() + ws[1].len() > 4 {
         let msg0 = round_message(&mut vs[0], &mut ws[0]);
         let msg1 = round_message(&mut vs[1], &mut ws[1]);
@@ -57,8 +71,8 @@ where
             msg0[0] + batch_chal * msg1[0],
             msg0[1] + batch_chal * msg1[1],
         ];
-        arthur.append_elements(&msg).unwrap();
-        let c = arthur.field_challenge().unwrap();
+        arthur.absorb_serializable(&msg).unwrap();
+        let c = arthur.squeeze_pfelt().unwrap();
         // fold the polynomials
         fold_inplace(&mut vs[0], c);
         fold_inplace(&mut ws[0], c);
@@ -71,7 +85,7 @@ where
     (chals, msgs)
 }
 
-pub fn reduce<F: PrimeField + Absorbable<u8>>(
+pub fn reduce<F: PrimeField>(
     merlin: &mut Merlin,
     messages: &[[F; 2]],
     mut claim: F,
@@ -82,8 +96,8 @@ pub fn reduce<F: PrimeField + Absorbable<u8>>(
         // compute the next challenge from the previous coefficients.
         // transcript.append_serializable(b"evaluations", message);
         // let r = transcript.get_challenge::<F>(b"challenge");
-        merlin.append_elements(&[a, b]).unwrap();
-        let r = merlin.field_challenge::<F>().unwrap();
+        merlin.absorb_serializable(&[a, b]).unwrap();
+        let r = merlin.squeeze_pfelt::<F>().unwrap();
         challenges.push(r);
 
         let c = claim - a;
@@ -94,18 +108,14 @@ pub fn reduce<F: PrimeField + Absorbable<u8>>(
 }
 
 #[cfg(test)]
-pub fn sumcheck<F: PrimeField + Absorbable<u8>>(
-    arthur: &mut Arthur,
-    v: &[F],
-    w: &[F],
-) -> Vec<[F; 2]> {
+pub fn sumcheck<F: PrimeField>(arthur: &mut Arthur, v: &[F], w: &[F]) -> Vec<[F; 2]> {
     let mut msgs = Vec::new();
     let mut v = v.to_vec();
     let mut w = w.to_vec();
     while w.len() + v.len() > 2 {
         let msg = round_message(&mut v, &mut w);
-        arthur.append_elements(&msg).unwrap();
-        let c = arthur.field_challenge().unwrap();
+        arthur.absorb_serializable(&msg).unwrap();
+        let c = arthur.squeeze_pfelt().unwrap();
         fold_inplace(&mut v, c);
         fold_inplace(&mut w, c);
         msgs.push(msg);
@@ -118,15 +128,15 @@ fn test_sumcheck() {
     type F = ark_curve25519::Fr;
     use crate::linalg;
     use ark_std::UniformRand;
-    use nimue::DefaultHash;
+    use nimue::{Arthur, IOPattern, Merlin};
 
-    let rng = &mut rand::rngs::OsRng;
+    let rng = &mut nimue::DefaultRng::default();
     let v = (0..16).map(|_| F::rand(rng)).collect::<Vec<_>>();
     let w = (0..16).map(|_| F::rand(rng)).collect::<Vec<_>>();
     let a = linalg::inner_product(&v, &w);
-    let io = iopattern::<F>(nimue::IOPattern::new("sumcheck"), 16);
-    let mut arthur = nimue::Arthur::<DefaultHash>::from(&io);
-    let mut merlin = nimue::Merlin::<DefaultHash>::from(&io);
+    let io = IOPattern::new("sumcheck").sumcheck_io::<F>(16);
+    let mut arthur = Arthur::from(&io);
+    let mut merlin = Merlin::from(&io);
     let messages = sumcheck(&mut arthur, &v, &w);
     let (challenges, claim) = reduce(&mut merlin, &messages, a);
     let challenge_point = linalg::tensor(&challenges);
