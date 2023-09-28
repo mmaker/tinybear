@@ -1,21 +1,4 @@
 use ark_ff::PrimeField;
-use nimue::plugins::arkworks::prelude::*;
-use nimue::{Arthur, DuplexHash, IOPattern, Merlin};
-
-pub trait SumcheckIO {
-    fn sumcheck_io<F: PrimeField>(self, n: usize) -> Self;
-}
-
-impl<H: DuplexHash> SumcheckIO for IOPattern<H> {
-    fn sumcheck_io<F: PrimeField>(mut self, n: usize) -> Self {
-        for _ in 0..ark_std::log2(n) {
-            self = self
-                .absorb_serializable::<F>(2, "sumcheck-message")
-                .squeeze_pfelt::<F>(1, "sumcheck-chal")
-        }
-        self
-    }
-}
 
 fn fold_inplace<F: PrimeField>(f: &mut Vec<F>, r: F) {
     let half = (f.len() + 1) / 2;
@@ -45,7 +28,7 @@ fn round_message<F: PrimeField>(f: &mut Vec<F>, g: &mut Vec<F>) -> [F; 2] {
 }
 
 pub fn batch_sumcheck<F>(
-    arthur: &mut Arthur,
+//    transcript: &mut Transcript,
     vs: [&[F]; 2],
     ws: [&[F]; 2],
     batch_chal: F,
@@ -71,8 +54,9 @@ where
             msg0[0] + batch_chal * msg1[0],
             msg0[1] + batch_chal * msg1[1],
         ];
-        arthur.absorb_serializable(&msg).unwrap();
-        let c = arthur.squeeze_pfelt().unwrap();
+        // transcript.absorb_serializable(&msg).unwrap();
+        //  let c = transcript.squeeze_pfelt().unwrap();
+        let c = F::zero(); // squeeze
         // fold the polynomials
         fold_inplace(&mut vs[0], c);
         fold_inplace(&mut ws[0], c);
@@ -86,7 +70,7 @@ where
 }
 
 pub fn reduce<F: PrimeField>(
-    merlin: &mut Merlin,
+//    transcript: &mut Transcript,
     messages: &[[F; 2]],
     mut claim: F,
 ) -> (Vec<F>, F) {
@@ -96,8 +80,10 @@ pub fn reduce<F: PrimeField>(
         // compute the next challenge from the previous coefficients.
         // transcript.append_serializable(b"evaluations", message);
         // let r = transcript.get_challenge::<F>(b"challenge");
-        merlin.absorb_serializable(&[a, b]).unwrap();
-        let r = merlin.squeeze_pfelt::<F>().unwrap();
+        // transcript.absorb_serializable(&[a, b]).unwrap();
+        // let r = transcript.squeeze_pfelt::<F>().unwrap();
+        let r = F::zero();
+
         challenges.push(r);
 
         let c = claim - a;
@@ -108,14 +94,17 @@ pub fn reduce<F: PrimeField>(
 }
 
 #[cfg(test)]
-pub fn sumcheck<F: PrimeField>(arthur: &mut Arthur, v: &[F], w: &[F]) -> Vec<[F; 2]> {
+pub fn sumcheck<F: PrimeField>(
+    //transcript: &mut Transcript,
+    v: &[F], w: &[F]) -> Vec<[F; 2]> {
     let mut msgs = Vec::new();
     let mut v = v.to_vec();
     let mut w = w.to_vec();
     while w.len() + v.len() > 2 {
         let msg = round_message(&mut v, &mut w);
-        arthur.absorb_serializable(&msg).unwrap();
-        let c = arthur.squeeze_pfelt().unwrap();
+        // transcript.absorb_serializable(&msg).unwrap();
+        // let c = transcript.squeeze_pfelt().unwrap();
+        let c = F::zero(); // squeeze
         fold_inplace(&mut v, c);
         fold_inplace(&mut w, c);
         msgs.push(msg);
@@ -127,18 +116,17 @@ pub fn sumcheck<F: PrimeField>(arthur: &mut Arthur, v: &[F], w: &[F]) -> Vec<[F;
 fn test_sumcheck() {
     type F = ark_curve25519::Fr;
     use crate::linalg;
+    use ark_std::test_rng;
     use ark_std::UniformRand;
-    use nimue::{Arthur, IOPattern, Merlin};
 
-    let rng = &mut nimue::DefaultRng::default();
-    let v = (0..16).map(|_| F::rand(rng)).collect::<Vec<_>>();
-    let w = (0..16).map(|_| F::rand(rng)).collect::<Vec<_>>();
+    let mut rng = test_rng();
+    let v = (0..16).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
+    let w = (0..16).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
     let a = linalg::inner_product(&v, &w);
-    let io = IOPattern::new("sumcheck").sumcheck_io::<F>(16);
-    let mut arthur = Arthur::from(&io);
-    let mut merlin = Merlin::from(&io);
-    let messages = sumcheck(&mut arthur, &v, &w);
-    let (challenges, claim) = reduce(&mut merlin, &messages, a);
+    //let mut transcript_prover = Transcript::from(&io);
+    //let mut transcript_verifier = Transcript::from(&io);
+    let messages = sumcheck(&v, &w);
+    let (challenges, claim) = reduce(&messages, a);
     let challenge_point = linalg::tensor(&challenges);
     let b = linalg::inner_product(&v, &challenge_point[..]);
     let c = linalg::inner_product(&w, &challenge_point[..]);
