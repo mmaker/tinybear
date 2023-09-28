@@ -1,4 +1,6 @@
+
 use ark_ff::PrimeField;
+use transcript::IOPTranscript;
 
 fn fold_inplace<F: PrimeField>(f: &mut Vec<F>, r: F) {
     let half = (f.len() + 1) / 2;
@@ -28,7 +30,7 @@ fn round_message<F: PrimeField>(f: &mut Vec<F>, g: &mut Vec<F>) -> [F; 2] {
 }
 
 pub fn batch_sumcheck<F>(
-//    transcript: &mut Transcript,
+    transcript: &mut IOPTranscript<F>,
     vs: [&[F]; 2],
     ws: [&[F]; 2],
     batch_chal: F,
@@ -54,9 +56,8 @@ where
             msg0[0] + batch_chal * msg1[0],
             msg0[1] + batch_chal * msg1[1],
         ];
-        // transcript.absorb_serializable(&msg).unwrap();
-        //  let c = transcript.squeeze_pfelt().unwrap();
-        let c = F::zero(); // squeeze
+        transcript.append_serializable_element(b"XXX", &msg).unwrap();
+        let c = transcript.get_and_append_challenge(b"c").unwrap();
         // fold the polynomials
         fold_inplace(&mut vs[0], c);
         fold_inplace(&mut ws[0], c);
@@ -70,7 +71,7 @@ where
 }
 
 pub fn reduce<F: PrimeField>(
-//    transcript: &mut Transcript,
+    transcript: &mut IOPTranscript<F>,
     messages: &[[F; 2]],
     mut claim: F,
 ) -> (Vec<F>, F) {
@@ -78,11 +79,8 @@ pub fn reduce<F: PrimeField>(
     // reduce to a subclaim using the prover's messages.
     for &[a, b] in messages {
         // compute the next challenge from the previous coefficients.
-        // transcript.append_serializable(b"evaluations", message);
-        // let r = transcript.get_challenge::<F>(b"challenge");
-        // transcript.absorb_serializable(&[a, b]).unwrap();
-        // let r = transcript.squeeze_pfelt::<F>().unwrap();
-        let r = F::zero();
+        transcript.append_serializable_element(b"ab", &[a, b]).unwrap();
+        let r = transcript.get_and_append_challenge(b"r").unwrap();
 
         challenges.push(r);
 
@@ -95,16 +93,15 @@ pub fn reduce<F: PrimeField>(
 
 #[cfg(test)]
 pub fn sumcheck<F: PrimeField>(
-    //transcript: &mut Transcript,
+    transcript: &mut IOPTranscript<F>,
     v: &[F], w: &[F]) -> Vec<[F; 2]> {
     let mut msgs = Vec::new();
     let mut v = v.to_vec();
     let mut w = w.to_vec();
     while w.len() + v.len() > 2 {
         let msg = round_message(&mut v, &mut w);
-        // transcript.absorb_serializable(&msg).unwrap();
-        // let c = transcript.squeeze_pfelt().unwrap();
-        let c = F::zero(); // squeeze
+        transcript.append_serializable_element(b"ab", &msg).unwrap();
+        let c = transcript.get_and_append_challenge(b"r").unwrap();
         fold_inplace(&mut v, c);
         fold_inplace(&mut w, c);
         msgs.push(msg);
@@ -123,10 +120,15 @@ fn test_sumcheck() {
     let v = (0..16).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
     let w = (0..16).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
     let a = linalg::inner_product(&v, &w);
-    //let mut transcript_prover = Transcript::from(&io);
-    //let mut transcript_verifier = Transcript::from(&io);
-    let messages = sumcheck(&v, &w);
-    let (challenges, claim) = reduce(&messages, a);
+
+    let mut transcript_p = IOPTranscript::<F>::new(b"sumcheck");
+    transcript_p.append_message(b"init", b"init").unwrap();
+
+    let mut transcript_v = IOPTranscript::<F>::new(b"sumcheck");
+    transcript_v.append_message(b"init", b"init").unwrap();
+
+    let messages = sumcheck(&mut transcript_p, &v, &w);
+    let (challenges, claim) = reduce(&mut transcript_v, &messages, a);
     let challenge_point = linalg::tensor(&challenges);
     let b = linalg::inner_product(&v, &challenge_point[..]);
     let c = linalg::inner_product(&w, &challenge_point[..]);
