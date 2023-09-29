@@ -20,33 +20,15 @@
 use ark_ec::CurveGroup;
 use ark_ff::{Field, UniformRand, Zero};
 use ark_serialize::CanonicalSerialize;
-use nimue::plugins::arkworks::prelude::*;
-use nimue::{Arthur, DefaultHash, DuplexHash, IOPattern, Merlin};
+
+use transcript::IOPTranscript;
 
 use crate::linalg::tensor;
-use crate::sumcheck::SumcheckIO;
 
 use super::{aes, linalg, lookup, pedersen, sumcheck};
 
-const WITNESS_LEN: usize = 1760;
-
-pub trait AesIO {
-    fn aes_io<G: CurveGroup>(self) -> Self;
-}
-
-impl<H: DuplexHash<U = u8>> AesIO for IOPattern<H> {
-    fn aes_io<G: CurveGroup>(self) -> Self {
-        self.absorb_serializable::<G>(1, "witness-commitment")
-            .squeeze_pfelt::<G::ScalarField>(5, "lookup-challenges")
-            .absorb_serializable::<G>(3, "lookup-commitments")
-            .squeeze_pfelt::<G::ScalarField>(3, "batch-sumcheck")
-            .sumcheck_io::<G::ScalarField>(WITNESS_LEN)
-            .absorb_serializable::<G>(1, "sigma-commitment")
-            .squeeze_pfelt::<G::ScalarField>(3, "sigma-chal")
-            .absorb_serializable::<G>(1, "sigma-commitment")
-            .squeeze_pfelt::<G::ScalarField>(1, "sigma-chal")
-    }
-}
+// XXX?
+// const WITNESS_LEN: usize = 1760;
 
 #[derive(Default)]
 struct AesWitnessRegions {
@@ -321,7 +303,7 @@ fn challenge_for_witness<F: Field>(vector: &[F], r_sbox: F, r: F, r_xor: F, r2_x
 }
 
 pub fn prove<G>(
-    arthur: &mut Arthur,
+    transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &[G::Affine],
     message: [u8; 16],
     key: &[u8; 16],
@@ -339,7 +321,7 @@ where
     // TIME: ~3-4ms [outdated]
     let witness_vector = witness_vector(&witness);
     proof.witness = pedersen::commit_u8(&ck, &witness_vector);
-    arthur.absorb_serializable(&[proof.witness]).unwrap();
+    transcript.append_serializable_element(b"witness", &[proof.witness]).unwrap();
 
     // Lookup protocol
     // we're going to play with it using log derivatives.
@@ -350,13 +332,11 @@ where
     let witness_xor = get_xor_witness(&witness);
     // Get challenges for the lookup protocol.
     // one for sbox + mxcolhelp, sbox, two for xor
-    let lookup_challenge = arthur.squeeze_pfelt::<G::ScalarField>().unwrap();
-    let r_mcolpre = arthur.squeeze_pfelt().unwrap();
-    let r_sbox = arthur.squeeze_pfelt().unwrap();
-    // XXXXXXXXX
-    let r_xor = arthur.squeeze_pfelt::<G::ScalarField>().unwrap();
-    let r2_xor = arthur.squeeze_pfelt().unwrap();
-    let r_xor = G::ScalarField::from(0);
+    let lookup_challenge = transcript.get_and_append_challenge(b"lookup_challenge").unwrap();
+    let r_mcolpre = transcript.get_and_append_challenge(b"r_mcolpre").unwrap();
+    let r_sbox = transcript.get_and_append_challenge(b"r_sbox").unwrap();
+    let r_xor = transcript.get_and_append_challenge(b"r_xor").unwrap();
+    let r2_xor = transcript.get_and_append_challenge(b"r2_xor").unwrap();
 
     // Needles: these are the elements that want to be found in the haystack.
     // Note: sbox+mixcol is a single table x -> MXCOLHELP[SBOX[x]]
@@ -441,8 +421,8 @@ where
     proof.inverse_needles_com = pedersen::commit(&ck, &inverse_needles);
     proof.inverse_haystack_com = pedersen::commit(&ck, &inverse_haystack);
     proof.freqs_com = pedersen::commit_u8(ck, &u8freqs);
-    arthur
-        .absorb_serializable(&[
+    transcript
+        .append_serializable_element(b"nhf", &[
             proof.inverse_needles_com,
             proof.inverse_haystack_com,
             proof.freqs_com,
@@ -450,9 +430,9 @@ where
         .unwrap();
 
     let mut batch_challenge = [G::ScalarField::zero(); 2];
-    batch_challenge[0] = arthur.squeeze_pfelt().unwrap();
-    batch_challenge[1] = arthur.squeeze_pfelt().unwrap();
-    let sumcheck_batch_challenge = arthur.squeeze_pfelt().unwrap();
+    batch_challenge[0] = transcript.get_and_append_challenge(b"bc0").unwrap();
+    batch_challenge[1] = transcript.get_and_append_challenge(b"bc1").unwrap();
+    let sumcheck_batch_challenge = transcript.get_and_append_challenge(b"sbc").unwrap();
 
     let sumcheck_needles_rhs = {
         let shift = lookup_challenge + batch_challenge[0];
@@ -466,7 +446,7 @@ where
     }
 
     let sumcheck_data = sumcheck::batch_sumcheck(
-        arthur,
+        transcript,
         [&inverse_haystack, &inverse_needles],
         [&sumcheck_haystack_rhs, &sumcheck_needles_rhs],
         sumcheck_batch_challenge,
@@ -493,23 +473,23 @@ where
     // put this thing back in the kernel
     k[0] = -linalg::inner_product(&k[1..], &evaluation_challenge[1..]);
     let k_gg = G::msm_unchecked(&ck, &k);
-    arthur.absorb_serializable(&[k_gg]).unwrap();
+    transcript.append_serializable_element(b"k_gg", &[k_gg]).unwrap();
     let mut chal = [G::ScalarField::rand(rng); 3];
-    chal[0] = arthur.squeeze_pfelt().unwrap();
-    chal[1] = arthur.squeeze_pfelt().unwrap();
-    chal[2] = arthur.squeeze_pfelt().unwrap();
+    chal[0] = transcript.get_and_append_challenge(b"c0").unwrap();
+    chal[1] = transcript.get_and_append_challenge(b"c1").unwrap();
+    chal[2] = transcript.get_and_append_challenge(b"c2").unwrap();
 
     let s = linalg::linear_combination(&[&k, &freqs, &inverse_haystack, &inverse_needles], &chal);
     proof.evaluations.proof = (k_gg, s);
 
     let mut k = (0..witness_vector.len())
-        .map(|_| G::ScalarField::rand(arthur.rng()))
+        .map(|_| transcript.get_and_append_challenge(b"k").unwrap())
         .collect::<Vec<_>>();
     let morphism = challenge_for_witness(&evaluation_challenge, r_sbox, r_mcolpre, r_xor, r2_xor);
     k[0] = -linalg::inner_product(&k[1..], &morphism);
     let k_gg = G::msm_unchecked(&ck, &k);
-    arthur.absorb_serializable(&[k_gg]).unwrap();
-    let chal = arthur.squeeze_pfelt().unwrap();
+    transcript.append_serializable_element(b"k_gg2", &[k_gg]).unwrap();
+    let chal = transcript.get_and_append_challenge(b"chal").unwrap();
     let witness_vector_ff = witness_vector
         .iter()
         .map(|&x| G::ScalarField::from(x))
@@ -541,8 +521,9 @@ where
 pub struct InvalidProof;
 type ProofResult = Result<(), InvalidProof>;
 
+#[allow(unused)] // XXX during dev
 pub fn verify<G>(
-    merlin: &mut Merlin,
+    transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &[G::Affine],
     k: [u8; 16],
     proof: &ProofTranscript<G>,
@@ -550,17 +531,15 @@ pub fn verify<G>(
 where
     G: CurveGroup,
 {
-    merlin.absorb_serializable(&[proof.witness]).unwrap();
-    let lookup_challenge = merlin.squeeze_pfelt::<G::ScalarField>().unwrap();
-    let r_mcolpre = merlin.squeeze_pfelt::<G::ScalarField>().unwrap();
-    let r_sbox = merlin.squeeze_pfelt::<G::ScalarField>().unwrap();
-    // XXXXXXXXX
-    let r_xor = merlin.squeeze_pfelt::<G::ScalarField>().unwrap();
-    let r2_xor = merlin.squeeze_pfelt::<G::ScalarField>().unwrap();
-    let r_xor = G::ScalarField::from(0);
+    transcript.append_serializable_element(b"witness", &[proof.witness]).unwrap();
+    let lookup_challenge = transcript.get_and_append_challenge(b"lookup_challenge").unwrap();
+    let r_mcolpre = transcript.get_and_append_challenge(b"r_mcolpre").unwrap();
+    let r_sbox = transcript.get_and_append_challenge(b"r_sbox").unwrap();
+    let r_xor = transcript.get_and_append_challenge(b"r_xor").unwrap();
+    let r2_xor = transcript.get_and_append_challenge(b"r2_xor").unwrap();
 
-    merlin
-        .absorb_serializable(&[
+    transcript
+        .append_serializable_element(b"nhf", &[
             proof.inverse_needles_com,
             proof.inverse_haystack_com,
             proof.freqs_com,
@@ -568,9 +547,9 @@ where
         .unwrap();
 
     let mut batch_challenge = [G::ScalarField::zero(); 2];
-    batch_challenge[0] = merlin.squeeze_pfelt().unwrap();
-    batch_challenge[1] = merlin.squeeze_pfelt().unwrap();
-    let sumcheck_batch_challenge = merlin.squeeze_pfelt::<G::ScalarField>().unwrap();
+    batch_challenge[0] = transcript.get_and_append_challenge(b"bc0").unwrap();
+    batch_challenge[1] = transcript.get_and_append_challenge(b"bc1").unwrap();
+    let sumcheck_batch_challenge = transcript.get_and_append_challenge(b"sbc").unwrap();
 
     let sumcheck_claim =
         proof.sumcheck_claim_haystack + sumcheck_batch_challenge * proof.sumcheck_claim_needles;
@@ -581,12 +560,12 @@ where
     let haystack_sumcheck_got = e.inverse_haystack * (evaluation_haystack + e.freqs);
 
     let (sumcheck_challenges, haystack_reduced) =
-        sumcheck::reduce(merlin, &proof.sumcheck, proof.sumcheck_claim_haystack);
+        sumcheck::reduce(transcript, &proof.sumcheck, proof.sumcheck_claim_haystack);
 
     let k_gg = proof.evaluations.proof.0;
     let s = &proof.evaluations.proof.1;
-    merlin.absorb_serializable(&[k_gg]).unwrap();
-    let c = merlin.squeeze_pfelt::<G::ScalarField>().unwrap();
+    transcript.append_serializable_element(b"k_gg", &[k_gg]).unwrap();
+    let c = transcript.get_and_append_challenge(b"c0").unwrap();
     let s_gg = G::msm_unchecked(&ck, &s);
 
     // check the sigma protocol is valid
@@ -600,8 +579,8 @@ where
 fn test_prove() {
     type G = ark_curve25519::EdwardsProjective;
 
-    let iopattern = IOPattern::new("aes128").aes_io::<G>();
-    let mut arthur = Arthur::from(&iopattern);
+    let mut transcript = IOPTranscript::<ark_curve25519::Fr>::new(b"aes");
+    transcript.append_message(b"init", b"init").unwrap();
 
     let message = [
         0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69, 0x0C,
@@ -613,7 +592,7 @@ fn test_prove() {
     ];
     let ck = pedersen::setup::<G>(&mut rand::thread_rng(), 2084);
 
-    let proof = prove::<G>(&mut arthur, &ck, message, &key);
+    let proof = prove::<G>(&mut transcript, &ck, message, &key);
     println!("size: {}", proof.compressed_size());
     println!("size: {}", proof.evaluations.compressed_size());
 }
