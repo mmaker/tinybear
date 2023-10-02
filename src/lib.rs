@@ -1,5 +1,6 @@
 pub mod aes;
-pub mod zkp;
+pub mod prover;
+pub mod verifier;
 
 pub mod pedersen;
 mod u8msm;
