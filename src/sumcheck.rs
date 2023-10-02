@@ -91,15 +91,20 @@ pub fn reduce<F: PrimeField>(
     (challenges, claim)
 }
 
+/// Prove the inner product <v, w> using a sumcheck
+///
 #[cfg(test)]
 pub fn sumcheck<F: PrimeField>(
     transcript: &mut IOPTranscript<F>,
-    v: &[F], w: &[F]) -> Vec<[F; 2]> {
+    v: &[F],
+    w: &[F]
+) -> Vec<[F; 2]> {
     let mut msgs = Vec::new();
     let mut v = v.to_vec();
     let mut w = w.to_vec();
     while w.len() + v.len() > 2 {
         let msg = round_message(&mut v, &mut w);
+
         transcript.append_serializable_element(b"ab", &msg).unwrap();
         let c = transcript.get_and_append_challenge(b"r").unwrap();
         fold_inplace(&mut v, c);

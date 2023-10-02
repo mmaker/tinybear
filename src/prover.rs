@@ -103,6 +103,11 @@ pub struct ProofTranscript<G: CurveGroup> {
     pub evaluations: AesProofEvaluations<G>,
 }
 
+/// Transforms an AES witness into a flattened vector representation.
+///
+/// This function takes an AES witness, which captures the execution trace of AES encryption, and turns it into a
+/// continuous vector of 4-bit chunks.  Each 8-bit byte from the witness is split into two 4-bit parts to simplify
+/// the lookup operations.
 fn vectorize_witness(witness: &aes::Witness) -> Vec<u8> {
     let mut w = Vec::new();
 
@@ -369,12 +374,15 @@ where
         .map(|x| G::ScalarField::from(*x))
         .collect::<Vec<_>>();
 
+    // Compute vector of inverse_needles[i] = 1 / (needles[i] + a) = g
     let mut inverse_needles = needles
         .iter()
         .map(|k| lookup_challenge + k)
         .collect::<Vec<_>>();
     ark_ff::batch_inversion(&mut inverse_needles);
 
+    // Start computing vector of inverse_haystack
+    // First we need to iterate over all the possibilities for each operation
     let haystack_xor = (0u8..=255)
         .map(|i| {
             let x = i & 0xf;
@@ -400,15 +408,16 @@ where
         })
         .collect::<Vec<_>>();
 
+    // Compute vector of inverse_haystack[i] = 1 / (haystack[i] + a) = h
     let haystack = [haystack_xor, haystack_s_box, haystack_m_col_pre].concat();
-
     let mut inverse_haystack = haystack
         .iter()
         .map(|x| lookup_challenge + x)
         .collect::<Vec<_>>();
     ark_ff::batch_inversion(&mut inverse_haystack);
 
-    // check that the witness is indeed valid
+    ////////////////////////////////////////////////////////////////////////////////
+    // Sanity check: check that the witness is indeed valid
     // sum_i g_i  = sum_i f_i
     assert_eq!(inverse_haystack.len(), frequencies_u8.len());
     for x in &needles {
@@ -422,10 +431,10 @@ where
             .sum::<G::ScalarField>(),
         inverse_needles.iter().sum::<G::ScalarField>()
     );
+    ////////////////////////////////////////////////////////////////////////////////
 
-    // TIME: 1ms
     // We commit to inverse_needles and inverse_haystack.
-    // Normally, this would be:
+    // TIME: 1ms
     proof.inverse_needles_com = pedersen::commit(&ck, &inverse_needles);
     proof.inverse_haystack_com = pedersen::commit(&ck, &inverse_haystack);
     proof.freqs_com = pedersen::commit_u8(ck, &frequencies_u8);
@@ -437,10 +446,12 @@ where
         ])
         .unwrap();
 
+    ////////////////////////////// Moving towards sumcheck  //////////////////////////////
+
+    // batch_challenge is used to batch all the inner products into one
     let mut batch_challenge = [G::ScalarField::zero(); 2];
     batch_challenge[0] = transcript.get_and_append_challenge(b"bc0").unwrap();
     batch_challenge[1] = transcript.get_and_append_challenge(b"bc1").unwrap();
-    let sumcheck_batch_challenge = transcript.get_and_append_challenge(b"sbc").unwrap();
 
     let sumcheck_needles_rhs = {
         let shift = lookup_challenge + batch_challenge[0];
@@ -453,6 +464,7 @@ where
         sumcheck_haystack_rhs[i] = value
     }
 
+    let sumcheck_batch_challenge = transcript.get_and_append_challenge(b"sbc").unwrap();
     let sumcheck_data = sumcheck::batch_sumcheck(
         transcript,
         [&inverse_haystack, &inverse_needles],
@@ -466,30 +478,43 @@ where
         linalg::inner_product(&inverse_haystack, &sumcheck_haystack_rhs);
     proof.sumcheck_claim_needles = linalg::inner_product(&inverse_needles, &sumcheck_needles_rhs);
 
+    ////////////////////////////// Sigma protocol //////////////////////////////
+
+    // Public part of tensor relation:
+    // evaluation_challenge = (1, c1, c2, c3, c1c2, c1c3, c2c3, c1c2c3)
     let evaluation_challenge = linalg::tensor(&sumcheck_challenges);
+
     proof.evaluations.inverse_haystack =
         linalg::inner_product(&inverse_haystack, &evaluation_challenge);
     proof.evaluations.inverse_needles =
         linalg::inner_product(&inverse_needles, &evaluation_challenge);
     proof.evaluations.freqs = linalg::inner_product_u8(&frequencies_u8, &evaluation_challenge);
 
-    // let's go with the sigma protocol now
+    // First Sigma!
+
+    // Create the prover's blinders
     let k_len = usize::max(needles.len(), haystack.len());
     let mut k = (0..k_len)
         .map(|_| G::ScalarField::rand(rng))
         .collect::<Vec<_>>();
-    // put this thing back in the kernel
+    // apply the linear relation to the blinders
     k[0] = -linalg::inner_product(&k[1..], &evaluation_challenge[1..]);
+
+    // Commit to the blinders and send the commitment to the verifier
     let k_gg = G::msm_unchecked(&ck, &k);
     transcript.append_serializable_element(b"k_gg", &[k_gg]).unwrap();
+
+    // Get challenges from verifier
     let mut chal = [G::ScalarField::rand(rng); 3];
     chal[0] = transcript.get_and_append_challenge(b"c0").unwrap();
     chal[1] = transcript.get_and_append_challenge(b"c1").unwrap();
     chal[2] = transcript.get_and_append_challenge(b"c2").unwrap();
 
+    // Compute prover's response
     let s = linalg::linear_combination(&[&k, &frequencies, &inverse_haystack, &inverse_needles], &chal);
     proof.evaluations.proof = (k_gg, s);
 
+    // Second Sigma!
     let mut k = (0..witness_vector.len())
         .map(|_| transcript.get_and_append_challenge(b"k").unwrap())
         .collect::<Vec<_>>();
