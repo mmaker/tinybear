@@ -1,6 +1,6 @@
 use ark_ff::Field;
 
-pub fn u16_frequencies<'a>(dst: &mut [u8], witness: impl IntoIterator<Item = &'a (u8, u8, u8)>) {
+pub fn count_u16_frequencies<'a>(dst: &mut [u8], witness: impl IntoIterator<Item = &'a (u8, u8, u8)>) {
     for &(x, y, _z) in witness {
         let i_lo = (x & 0xf) | ((y & 0xf) << 4);
         let i_hi = (x >> 4) | (y & 0xf0);
@@ -9,20 +9,20 @@ pub fn u16_frequencies<'a>(dst: &mut [u8], witness: impl IntoIterator<Item = &'a
     }
 }
 
-pub fn u8_frequencies<'a>(dst: &mut [u8], witness: impl IntoIterator<Item = &'a (u8, u8)>) {
+pub fn count_u8_frequencies<'a>(dst: &mut [u8], witness: impl IntoIterator<Item = &'a (u8, u8)>) {
     for &(x, _y) in witness {
         dst[x as usize] += 1;
     }
 }
 
-pub fn u8_needles<'a, F: Field>(witness: impl IntoIterator<Item = &'a (u8, u8)>, r: F) -> Vec<F> {
+pub fn compute_u8_needles<'a, F: Field>(witness: impl IntoIterator<Item = &'a (u8, u8)>, r: F) -> Vec<F> {
     witness
         .into_iter()
         .map(|&(x, y)| F::from(x) + r * F::from(y))
         .collect()
 }
 
-pub fn u16_needles<'a, F: Field>(
+pub fn compute_u16_needles<'a, F: Field>(
     witness: impl IntoIterator<Item = &'a (u8, u8, u8)>,
     r: [F; 2],
 ) -> Vec<F> {

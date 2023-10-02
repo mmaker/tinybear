@@ -87,7 +87,7 @@ pub struct AesProofEvaluations<G: CurveGroup> {
 
 #[derive(Default, CanonicalSerialize)]
 pub struct ProofTranscript<G: CurveGroup> {
-    pub witness: G,
+    pub witness_com: G,
     // we actually know the len of the items below, it's LOOKUP_CHUNKS
     pub freqs_com: G,
     pub inverse_needles_com: G,
@@ -103,7 +103,7 @@ pub struct ProofTranscript<G: CurveGroup> {
     pub evaluations: AesProofEvaluations<G>,
 }
 
-fn witness_vector(witness: &aes::Witness) -> Vec<u8> {
+fn vectorize_witness(witness: &aes::Witness) -> Vec<u8> {
     let mut w = Vec::new();
 
     assert_eq!(OFFSETS.start, w.len());
@@ -315,19 +315,24 @@ where
     // witness generation
     // TIME: 7e-3ms
     let witness = aes::aes128_trace(message, *key);
+
     // commit to trace of the program.
     // TIME: ~3-4ms [outdated]
-    let witness_vector = witness_vector(&witness);
-    proof.witness = pedersen::commit_u8(&ck, &witness_vector);
-    transcript.append_serializable_element(b"witness", &[proof.witness]).unwrap();
+    let witness_vector = vectorize_witness(&witness);
+    proof.witness_com = pedersen::commit_u8(&ck, &witness_vector);
+    transcript.append_serializable_element(b"witness", &[proof.witness_com]).unwrap();
 
-    // Lookup protocol
-    // we're going to play with it using log derivatives.
-    // we want to show that all the needles are in the haystack
+    //////////////////////////// Lookup protocol //////////////////////////////
+
     // Generate the witness.
+    // witness_s_box = [(a, sbox(a)), (b, sbox(b)), ...]
     let witness_s_box = get_s_box_witness(&witness);
+
     let witness_m_col_pre = get_m_col_pre_witness(&witness);
+
+    // witness_xor = [(a, b, xor(a, b)), (c, d, xor(c, d)), ...]
     let witness_xor = get_xor_witness(&witness);
+
     // Get challenges for the lookup protocol.
     // one for sbox + mxcolhelp, sbox, two for xor
     let lookup_challenge = transcript.get_and_append_challenge(b"lookup_challenge").unwrap();
@@ -338,9 +343,13 @@ where
 
     // Needles: these are the elements that want to be found in the haystack.
     // Note: sbox+mixcol is a single table x -> MXCOLHELP[SBOX[x]]
-    let s_box_needles = lookup::u8_needles(&witness_s_box, r_sbox);
-    let m_col_pre_needles = lookup::u8_needles(&witness_m_col_pre, r_mcolpre);
-    let xor_needles = lookup::u16_needles(&witness_xor, [r_xor, r2_xor]);
+
+    // s_box_needles = [x_1 + r * sbox[x_1], x_2 + r * sbox[x_2], ...]
+    let s_box_needles = lookup::compute_u8_needles(&witness_s_box, r_sbox);
+    let m_col_pre_needles = lookup::compute_u8_needles(&witness_m_col_pre, r_mcolpre);
+
+    // ASN xor_needles = ??? 4 bit stuff
+    let xor_needles = lookup::compute_u16_needles(&witness_xor, [r_xor, r2_xor]);
 
     let needles = [s_box_needles, m_col_pre_needles, xor_needles].concat();
 
@@ -350,11 +359,12 @@ where
     // | 4-bit xor | sbox | m_col_pre |
     // |  256      | 256  | 256       |
     // First, group witness by lookup table.
-    let mut u8freqs = vec![0u8; 256 * 3];
-    lookup::u16_frequencies(&mut u8freqs[0..256], &witness_xor);
-    lookup::u8_frequencies(&mut u8freqs[256..512], &witness_s_box);
-    lookup::u8_frequencies(&mut u8freqs[512..768], &witness_m_col_pre);
-    let freqs = u8freqs
+    let mut frequencies_u8 = vec![0u8; 256 * 3];
+    lookup::count_u16_frequencies(&mut frequencies_u8[0..256], &witness_xor);
+    lookup::count_u8_frequencies(&mut frequencies_u8[256..512], &witness_s_box);
+    lookup::count_u8_frequencies(&mut frequencies_u8[512..768], &witness_m_col_pre);
+
+    let frequencies = frequencies_u8
         .iter()
         .map(|x| G::ScalarField::from(*x))
         .collect::<Vec<_>>();
@@ -400,14 +410,14 @@ where
 
     // check that the witness is indeed valid
     // sum_i g_i  = sum_i f_i
-    assert_eq!(inverse_haystack.len(), u8freqs.len());
+    assert_eq!(inverse_haystack.len(), frequencies_u8.len());
     for x in &needles {
         assert!(haystack.contains(x))
     }
     assert_eq!(
         inverse_haystack
             .iter()
-            .zip(&u8freqs)
+            .zip(&frequencies_u8)
             .map(|(&a, &b)| a * G::ScalarField::from(b))
             .sum::<G::ScalarField>(),
         inverse_needles.iter().sum::<G::ScalarField>()
@@ -418,7 +428,7 @@ where
     // Normally, this would be:
     proof.inverse_needles_com = pedersen::commit(&ck, &inverse_needles);
     proof.inverse_haystack_com = pedersen::commit(&ck, &inverse_haystack);
-    proof.freqs_com = pedersen::commit_u8(ck, &u8freqs);
+    proof.freqs_com = pedersen::commit_u8(ck, &frequencies_u8);
     transcript
         .append_serializable_element(b"nhf", &[
             proof.inverse_needles_com,
@@ -438,7 +448,7 @@ where
     };
 
     let mut sumcheck_haystack_rhs = vec![G::ScalarField::zero(); 256 * 3];
-    for (i, (f, h)) in freqs.iter().zip(&haystack).enumerate() {
+    for (i, (f, h)) in frequencies.iter().zip(&haystack).enumerate() {
         let value = batch_challenge[0] * f + batch_challenge[1] * h + lookup_challenge;
         sumcheck_haystack_rhs[i] = value
     }
@@ -461,7 +471,7 @@ where
         linalg::inner_product(&inverse_haystack, &evaluation_challenge);
     proof.evaluations.inverse_needles =
         linalg::inner_product(&inverse_needles, &evaluation_challenge);
-    proof.evaluations.freqs = linalg::inner_product_u8(&u8freqs, &evaluation_challenge);
+    proof.evaluations.freqs = linalg::inner_product_u8(&frequencies_u8, &evaluation_challenge);
 
     // let's go with the sigma protocol now
     let k_len = usize::max(needles.len(), haystack.len());
@@ -477,7 +487,7 @@ where
     chal[1] = transcript.get_and_append_challenge(b"c1").unwrap();
     chal[2] = transcript.get_and_append_challenge(b"c2").unwrap();
 
-    let s = linalg::linear_combination(&[&k, &freqs, &inverse_haystack, &inverse_needles], &chal);
+    let s = linalg::linear_combination(&[&k, &frequencies, &inverse_haystack, &inverse_needles], &chal);
     proof.evaluations.proof = (k_gg, s);
 
     let mut k = (0..witness_vector.len())

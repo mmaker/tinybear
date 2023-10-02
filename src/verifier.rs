@@ -22,7 +22,7 @@ pub fn verify<G>(
 where
     G: CurveGroup,
 {
-    transcript.append_serializable_element(b"witness", &[proof.witness]).unwrap();
+    transcript.append_serializable_element(b"witness", &[proof.witness_com]).unwrap();
     let lookup_challenge = transcript.get_and_append_challenge(b"lookup_challenge").unwrap();
     let r_mcolpre = transcript.get_and_append_challenge(b"r_mcolpre").unwrap();
     let r_sbox = transcript.get_and_append_challenge(b"r_sbox").unwrap();
