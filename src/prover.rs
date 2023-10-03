@@ -208,6 +208,8 @@ fn get_xor_witness(witness: &aes::Witness) -> Vec<(u8, u8, u8)> {
     witness_xor
 }
 
+/// DOCDOC
+/// Used by sigma protocol verifier in order to construct the right evaluation given the shiftrow permutation
 fn challenge_for_witness<F: Field>(vector: &[F], r_sbox: F, r: F, r_xor: F, r2_xor: F) -> Vec<F> {
     // the final matrix that maps witness -> needles
     // has dimensions: needles.len() x witness.len()
@@ -448,22 +450,23 @@ where
 
     ////////////////////////////// Moving towards sumcheck  //////////////////////////////
 
-    // batch_challenge is used to batch all the inner products into one
+    // batch_challenges are used to batch all the inner products into one
     let mut batch_challenge = [G::ScalarField::zero(); 2];
     batch_challenge[0] = transcript.get_and_append_challenge(b"bc0").unwrap();
     batch_challenge[1] = transcript.get_and_append_challenge(b"bc1").unwrap();
 
     let sumcheck_needles_rhs = {
         let shift = lookup_challenge + batch_challenge[0];
-        needles.iter().map(|x| shift + x).collect::<Vec<_>>()
+        needles.iter().map(|f_i| shift + f_i).collect::<Vec<_>>()
     };
 
     let mut sumcheck_haystack_rhs = vec![G::ScalarField::zero(); 256 * 3];
-    for (i, (f, h)) in frequencies.iter().zip(&haystack).enumerate() {
-        let value = batch_challenge[0] * f + batch_challenge[1] * h + lookup_challenge;
+    for (i, (m_i, t_i)) in frequencies.iter().zip(&haystack).enumerate() {
+        let value = batch_challenge[0] * m_i + batch_challenge[1] * t_i + lookup_challenge;
         sumcheck_haystack_rhs[i] = value
     }
 
+    // We have two inner product relations: batch them together into a single sumcheck
     let sumcheck_batch_challenge = transcript.get_and_append_challenge(b"sbc").unwrap();
     let sumcheck_data = sumcheck::batch_sumcheck(
         transcript,
@@ -471,9 +474,11 @@ where
         [&sumcheck_haystack_rhs, &sumcheck_needles_rhs],
         sumcheck_batch_challenge,
     );
+    // extract the random evaluation point at the end of the sumcheck
     let sumcheck_challenges = sumcheck_data.0;
+    // pour sumcheck data into the proof
     proof.sumcheck = sumcheck_data.1;
-
+    // add the inner product results (sumcheck claims) to the proof as well
     proof.sumcheck_claim_haystack =
         linalg::inner_product(&inverse_haystack, &sumcheck_haystack_rhs);
     proof.sumcheck_claim_needles = linalg::inner_product(&inverse_needles, &sumcheck_needles_rhs);
@@ -481,7 +486,6 @@ where
     ////////////////////////////// Sigma protocol //////////////////////////////
 
     // Public part of tensor relation:
-    // evaluation_challenge = (1, c1, c2, c3, c1c2, c1c3, c2c3, c1c2c3)
     let evaluation_challenge = linalg::tensor(&sumcheck_challenges);
 
     proof.evaluations.inverse_haystack =
@@ -515,6 +519,7 @@ where
     proof.evaluations.proof = (k_gg, s);
 
     // Second Sigma!
+    // Needed because of shiftrow permutation:we are evaluating two polynomials in two different points because of shiftrows
     let mut k = (0..witness_vector.len())
         .map(|_| transcript.get_and_append_challenge(b"k").unwrap())
         .collect::<Vec<_>>();
