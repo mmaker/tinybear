@@ -490,7 +490,7 @@ where
     // Second Sigma!
     // Needed because of shiftrow permutation:we are evaluating two polynomials in two different points because of shiftrows
     let mut k = (0..witness_vector.len())
-        .map(|_| transcript.get_and_append_challenge(b"k").unwrap())
+        .map(|_| G::ScalarField::rand(rng))
         .collect::<Vec<_>>();
     let morphism = challenge_for_witness(&evaluation_challenge, r_sbox, r_mcolpre, r_xor, r2_xor);
     k[0] = -linalg::inner_product(&k[1..], &morphism);

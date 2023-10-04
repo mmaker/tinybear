@@ -3,9 +3,11 @@ use ark_ff::{Zero};
 
 use transcript::IOPTranscript;
 
-use crate::linalg::tensor;
+use crate::linalg;
+use crate::linalg::{tensor};
 
-use crate::prover::ProofTranscript;
+use crate:: pedersen;
+use crate::prover::{prove, ProofTranscript};
 
 use super::{sumcheck};
 
@@ -39,34 +41,31 @@ where
         .unwrap();
 
     // Step 4: Verifier challenges for inner product batching
-    let c_0 = transcript.get_and_append_challenge(b"bc0").unwrap(); // c_0
-    let c_1 = transcript.get_and_append_challenge(b"bc1").unwrap(); // c_1
+    let c_0 = transcript.get_and_append_challenge(b"bc0").unwrap();
+    let c_1 = transcript.get_and_append_challenge(b"bc1").unwrap();
     let beta = transcript.get_and_append_challenge(b"sbc").unwrap();
 
     // Step 5: Sumcheck
-
-    // t + \beta * c_1
-    let sumcheck_claim =
-        proof.sumcheck_claim_haystack + beta * proof.sumcheck_claim_needles;
-    // XXX
-    let evaluation_haystack = G::ScalarField::zero();
-    let evaluation_needles = G::ScalarField::zero();
-    // <f, tensor> XXX
-    let needles_sumcheck_got = proof.evaluations.inverse_needles * evaluation_needles;
-    // <t, tensor> * (XXX + <m, tensor>)
-    let haystack_sumcheck_got = proof.evaluations.inverse_haystack * (evaluation_haystack + proof.evaluations.freqs);
-
-    // proof.sumcheck_claim_haystack is result?
     let (sumcheck_challenges, tensorcheck_claim) =
         sumcheck::reduce(transcript, &proof.sumcheck, proof.sumcheck_claim_haystack);
 
     // Step 6: Linear evaluations
+    let evaluation_point = linalg::tensor(&sumcheck_challenges);
 
+    // First sigma
     let k_gg = proof.evaluations.sigma_proof.0;
     let s = &proof.evaluations.sigma_proof.1;
     transcript.append_serializable_element(b"k_gg", &[k_gg]).unwrap();
-    let c = transcript.get_and_append_challenge(b"c0").unwrap();
-    let s_gg = G::msm_unchecked(&ck, &s);
+
+    let mut vec_delta = [G::ScalarField::zero(); 3];
+    vec_delta[0] = transcript.get_and_append_challenge(b"delta0").unwrap();
+    vec_delta[1] = transcript.get_and_append_challenge(b"delta1").unwrap();
+    vec_delta[2] = transcript.get_and_append_challenge(b"delta2").unwrap();
+
+    // Second sigma
+    let k_gg_2 = proof.evaluations.sigma_proof_needles.0;
+    transcript.append_serializable_element(b"k_gg2", &[k_gg_2]).unwrap();
+    let chal = transcript.get_and_append_challenge(b"chal").unwrap();
 
     // check the sigma protocol is valid
     let morphism = tensor(&sumcheck_challenges);
@@ -74,3 +73,31 @@ where
 
     Err(InvalidProof)
 }
+
+
+#[test]
+fn test_end_to_end() {
+    type G = ark_curve25519::EdwardsProjective;
+
+    let mut transcript_p = IOPTranscript::<ark_curve25519::Fr>::new(b"aes");
+    transcript_p.append_message(b"init", b"init").unwrap();
+
+    let mut transcript_v = IOPTranscript::<ark_curve25519::Fr>::new(b"aes");
+    transcript_v.append_message(b"init", b"init").unwrap();
+
+
+    let message = [
+        0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69, 0x0C,
+        0xE7,
+    ];
+    let key = [
+        0xE7u8, 0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69,
+        0x0C,
+    ];
+    let ck = pedersen::setup::<G>(&mut rand::thread_rng(), 2084);
+
+    let proof = prove::<G>(&mut transcript_p, &ck, message, &key);
+
+    let _ = verify::<G>(&mut transcript_v, &ck, key, &proof);
+}
+
