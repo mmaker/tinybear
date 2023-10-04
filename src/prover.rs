@@ -455,14 +455,16 @@ where
     batch_challenge[0] = transcript.get_and_append_challenge(b"bc0").unwrap();
     batch_challenge[1] = transcript.get_and_append_challenge(b"bc1").unwrap();
 
+    // Compute the RHS of: <g, f + a - c_0>
     let sumcheck_needles_rhs = {
-        let shift = lookup_challenge + batch_challenge[0];
+        let shift = lookup_challenge - batch_challenge[0];
         needles.iter().map(|f_i| shift + f_i).collect::<Vec<_>>()
     };
 
+    // Compute the RHS of: <h, c_1 ( t + a ) + c_0 m>
     let mut sumcheck_haystack_rhs = vec![G::ScalarField::zero(); 256 * 3];
     for (i, (m_i, t_i)) in frequencies.iter().zip(&haystack).enumerate() {
-        let value = batch_challenge[0] * m_i + batch_challenge[1] * t_i + lookup_challenge;
+        let value = batch_challenge[0] * m_i + batch_challenge[1] * (*t_i + lookup_challenge);
         sumcheck_haystack_rhs[i] = value
     }
 
