@@ -96,9 +96,9 @@ pub struct ProofTranscript<G: CurveGroup> {
     // we actually know the len of this thing,
     // it's going to be 12 for aes128 with 4-bit xor
     // it's going to be 17 for 8-bit table xor
-    pub sumcheck: Vec<[G::ScalarField; 2]>,
-    pub sumcheck_claim_haystack: G::ScalarField,
-    pub sumcheck_claim_needles: G::ScalarField,
+    // XXX
+    pub sumcheck_messages: Vec<[G::ScalarField; 2]>,
+    pub sumcheck_claim_f_g: G::ScalarField,
 
     pub evaluations: AesProofEvaluations<G>,
 }
@@ -417,42 +417,17 @@ where
 
     ////////////////////////////// Moving towards sumcheck  //////////////////////////////
 
-    // batch_challenges are used to batch all the inner products into one
-    // in the paper they are c_0 and c_1
-    let c_0 = transcript.get_and_append_challenge(b"bc0").unwrap();
-    let c_1 = transcript.get_and_append_challenge(b"bc1").unwrap();
-
-    // Compute the RHS of: <g, f + a - c_0>
-    let sumcheck_needles_rhs = {
-        let shift = lookup_challenge - c_0;
-        needles.iter().map(|f_i| shift + f_i).collect::<Vec<_>>()
-    };
-
-    // Compute the RHS of: <h, c_1 ( t + a ) + c_0 m>
-    let mut sumcheck_haystack_rhs = vec![G::ScalarField::zero(); 256 * 3];
-    for (i, (m_i, t_i)) in frequencies.iter().zip(&haystack).enumerate() {
-        let value = c_0 * m_i + c_1 * (*t_i + lookup_challenge);
-        sumcheck_haystack_rhs[i] = value
-    }
-
-    // We have two inner product relations: batch them together into a single sumcheck
-    let beta = transcript.get_and_append_challenge(b"sbc").unwrap();
-    let sumcheck_data = sumcheck::batch_sumcheck(
-        transcript,
-        [&inverse_haystack, &inverse_needles],
-        [&sumcheck_haystack_rhs, &sumcheck_needles_rhs],
-        beta,
-    );
-    // extract the random evaluation point at the end of the sumcheck
-    let sumcheck_challenges = sumcheck_data.0;
-    // pour sumcheck data into the proof
-    proof.sumcheck = sumcheck_data.1;
+   // Reduce scalar product <f,g> to a tensor product
+   let (sumcheck_challenges, sumcheck_messages) = sumcheck::sumcheck(transcript, &needles, &inverse_needles);
+    // pour sumcheck messages into the proof
+    proof.sumcheck_messages = sumcheck_messages;
     // add the inner product results (sumcheck claims) to the proof as well
-    proof.sumcheck_claim_haystack =
-        linalg::inner_product(&inverse_haystack, &sumcheck_haystack_rhs);
-    proof.sumcheck_claim_needles = linalg::inner_product(&inverse_needles, &sumcheck_needles_rhs);
+    proof.sumcheck_claim_f_g = linalg::inner_product(&needles, &inverse_needles);
 
     ////////////////////////////// Sigma protocol //////////////////////////////
+
+    // use c_0 to batch inner products together
+    let c_0 = transcript.get_and_append_challenge(b"bc0").unwrap();
 
     // Public part of tensor relation:
     let evaluation_challenge = linalg::tensor(&sumcheck_challenges);

@@ -40,16 +40,12 @@ where
         ])
         .unwrap();
 
-    // Step 4: Verifier challenges for inner product batching
-    let c_0 = transcript.get_and_append_challenge(b"bc0").unwrap();
-    let c_1 = transcript.get_and_append_challenge(b"bc1").unwrap();
-    let beta = transcript.get_and_append_challenge(b"sbc").unwrap();
-
     // Step 5: Sumcheck
     let (sumcheck_challenges, tensorcheck_claim) =
-        sumcheck::reduce(transcript, &proof.sumcheck, proof.sumcheck_claim_haystack);
+        sumcheck::reduce(transcript, &proof.sumcheck_messages, proof.sumcheck_claim_f_g);
 
     // Step 6: Linear evaluations
+    let c_0 = transcript.get_and_append_challenge(b"bc0").unwrap();
     let evaluation_point = linalg::tensor(&sumcheck_challenges);
 
     // First sigma
