@@ -383,40 +383,7 @@ where
         .collect::<Vec<_>>();
     ark_ff::batch_inversion(&mut inverse_needles);
 
-    // Start computing vector of inverse_haystack
-    // First we need to iterate over all the possibilities for each operation
-    let haystack_xor = (0u8..=255)
-        .map(|i| {
-            let x = i & 0xf;
-            let y = i >> 4;
-            let z = x ^ y;
-            G::ScalarField::from(x)
-                + r_xor * G::ScalarField::from(y)
-                + r2_xor * G::ScalarField::from(z)
-        })
-        .collect::<Vec<_>>();
-    let haystack_s_box = (0u8..=255)
-        .map(|i| {
-            let x = i;
-            let y = aes::SBOX[x as usize];
-            G::ScalarField::from(x) + r_sbox * G::ScalarField::from(y)
-        })
-        .collect::<Vec<_>>();
-    let haystack_m_col_pre = (0u8..=255)
-        .map(|i| {
-            let x = i;
-            let y = aes::M_COL_HELP[x as usize];
-            G::ScalarField::from(x) + r_mcolpre * G::ScalarField::from(y)
-        })
-        .collect::<Vec<_>>();
-
-    // Compute vector of inverse_haystack[i] = 1 / (haystack[i] + a) = h
-    let haystack = [haystack_xor, haystack_s_box, haystack_m_col_pre].concat();
-    let mut inverse_haystack = haystack
-        .iter()
-        .map(|x| lookup_challenge + x)
-        .collect::<Vec<_>>();
-    ark_ff::batch_inversion(&mut inverse_haystack);
+    let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_mcolpre, lookup_challenge);
 
     ////////////////////////////////////////////////////////////////////////////////
     // Sanity check: check that the witness is indeed valid

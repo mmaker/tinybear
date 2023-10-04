@@ -1,5 +1,7 @@
 use ark_ff::Field;
 
+use crate::aes;
+
 /// Counts the occurrences of 16-bit tuples in the given witness.
 ///
 /// This function increases counters in the `dst` array for each occurrence of the 4-bit slices of `x` and `y` found in
@@ -65,4 +67,50 @@ pub fn compute_u16_needles<'a, F: Field>(
         })
         .flatten()
         .collect()
+}
+
+/// Compute the haystack table t
+pub fn compute_haystack<F: Field>(
+    r_xor: F,
+    r2_xor: F,
+    r_sbox: F,
+    r_mcolpre: F,
+    lookup_challenge: F
+) -> (Vec<F>, Vec<F>) {
+    // Start computing vector of inverse_haystack
+    // First we need to iterate over all the possibilities for each operation
+    let haystack_xor = (0u8..=255)
+        .map(|i| {
+            let x = i & 0xf;
+            let y = i >> 4;
+            let z = x ^ y;
+            F::from(x)
+                + r_xor * F::from(y)
+                + r2_xor * F::from(z)
+        })
+        .collect::<Vec<_>>();
+    let haystack_s_box = (0u8..=255)
+        .map(|i| {
+            let x = i;
+            let y = aes::SBOX[x as usize];
+            F::from(x) + r_sbox * F::from(y)
+        })
+        .collect::<Vec<_>>();
+    let haystack_m_col_pre = (0u8..=255)
+        .map(|i| {
+            let x = i;
+            let y = aes::M_COL_HELP[x as usize];
+            F::from(x) + r_mcolpre * F::from(y)
+        })
+        .collect::<Vec<_>>();
+
+    // Compute vector of inverse_haystack[i] = 1 / (haystack[i] + a) = h
+    let haystack = [haystack_xor, haystack_s_box, haystack_m_col_pre].concat();
+    let mut inverse_haystack = haystack
+        .iter()
+        .map(|x| lookup_challenge + x)
+        .collect::<Vec<_>>();
+    ark_ff::batch_inversion(&mut inverse_haystack);
+
+    (haystack, inverse_haystack)
 }
