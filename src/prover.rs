@@ -418,30 +418,30 @@ where
     ////////////////////////////// Moving towards sumcheck  //////////////////////////////
 
     // batch_challenges are used to batch all the inner products into one
-    let mut batch_challenge = [G::ScalarField::zero(); 2];
-    batch_challenge[0] = transcript.get_and_append_challenge(b"bc0").unwrap();
-    batch_challenge[1] = transcript.get_and_append_challenge(b"bc1").unwrap();
+    // in the paper they are c_0 and c_1
+    let c_0 = transcript.get_and_append_challenge(b"bc0").unwrap();
+    let c_1 = transcript.get_and_append_challenge(b"bc1").unwrap();
 
     // Compute the RHS of: <g, f + a - c_0>
     let sumcheck_needles_rhs = {
-        let shift = lookup_challenge - batch_challenge[0];
+        let shift = lookup_challenge - c_0;
         needles.iter().map(|f_i| shift + f_i).collect::<Vec<_>>()
     };
 
     // Compute the RHS of: <h, c_1 ( t + a ) + c_0 m>
     let mut sumcheck_haystack_rhs = vec![G::ScalarField::zero(); 256 * 3];
     for (i, (m_i, t_i)) in frequencies.iter().zip(&haystack).enumerate() {
-        let value = batch_challenge[0] * m_i + batch_challenge[1] * (*t_i + lookup_challenge);
+        let value = c_0 * m_i + c_1 * (*t_i + lookup_challenge);
         sumcheck_haystack_rhs[i] = value
     }
 
     // We have two inner product relations: batch them together into a single sumcheck
-    let sumcheck_batch_challenge = transcript.get_and_append_challenge(b"sbc").unwrap();
+    let beta = transcript.get_and_append_challenge(b"sbc").unwrap();
     let sumcheck_data = sumcheck::batch_sumcheck(
         transcript,
         [&inverse_haystack, &inverse_needles],
         [&sumcheck_haystack_rhs, &sumcheck_needles_rhs],
-        sumcheck_batch_challenge,
+        beta,
     );
     // extract the random evaluation point at the end of the sumcheck
     let sumcheck_challenges = sumcheck_data.0;
@@ -478,13 +478,13 @@ where
     transcript.append_serializable_element(b"k_gg", &[k_gg]).unwrap();
 
     // Get challenges from verifier
-    let mut chal = [G::ScalarField::rand(rng); 3];
-    chal[0] = transcript.get_and_append_challenge(b"c0").unwrap();
-    chal[1] = transcript.get_and_append_challenge(b"c1").unwrap();
-    chal[2] = transcript.get_and_append_challenge(b"c2").unwrap();
+    let mut vec_delta = [G::ScalarField::rand(rng); 3];
+    vec_delta[0] = transcript.get_and_append_challenge(b"delta0").unwrap();
+    vec_delta[1] = transcript.get_and_append_challenge(b"delta1").unwrap();
+    vec_delta[2] = transcript.get_and_append_challenge(b"delta2").unwrap();
 
     // Compute prover's response
-    let s = linalg::linear_combination(&[&k, &frequencies, &inverse_haystack, &inverse_needles], &chal);
+    let s = linalg::linear_combination(&[&k, &frequencies, &inverse_haystack, &inverse_needles], &vec_delta);
     proof.evaluations.sigma_proof = (k_gg, s);
 
     // Second Sigma!
