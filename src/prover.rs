@@ -89,9 +89,9 @@ pub struct AesProofEvaluations<G: CurveGroup> {
 pub struct ProofTranscript<G: CurveGroup> {
     pub witness_com: G,
     // we actually know the len of the items below, it's LOOKUP_CHUNKS
-    pub freqs_com: G,
-    pub inverse_needles_com: G,
-    pub inverse_haystack_com: G,
+    pub freqs_com: G, // com(m)
+    pub inverse_needles_com: G, // com(g)
+    pub gamma: G::ScalarField, // gamma = <g,1>
 
     // we actually know the len of this thing,
     // it's going to be 12 for aes128 with 4-bit xor
@@ -405,15 +405,15 @@ where
     // We commit to inverse_needles and inverse_haystack.
     // TIME: 1ms
     proof.inverse_needles_com = pedersen::commit(&ck, &inverse_needles);
-    proof.inverse_haystack_com = pedersen::commit(&ck, &inverse_haystack);
     proof.freqs_com = pedersen::commit_u8(ck, &frequencies_u8);
     transcript
         .append_serializable_element(b"nhf", &[
             proof.inverse_needles_com,
-            proof.inverse_haystack_com,
             proof.freqs_com,
         ])
         .unwrap();
+    // gamma = <g,1>
+    proof.gamma = inverse_needles.iter().sum();
 
     ////////////////////////////// Moving towards sumcheck  //////////////////////////////
 

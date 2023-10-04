@@ -35,7 +35,6 @@ where
     transcript
         .append_serializable_element(b"nhf", &[
             proof.inverse_needles_com,
-            proof.inverse_haystack_com,
             proof.freqs_com,
         ])
         .unwrap();
