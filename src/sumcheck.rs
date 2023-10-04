@@ -56,8 +56,8 @@ where
             msg0[0] + batch_chal * msg1[0],
             msg0[1] + batch_chal * msg1[1],
         ];
-        transcript.append_serializable_element(b"XXX", &msg).unwrap();
-        let c = transcript.get_and_append_challenge(b"c").unwrap();
+        transcript.append_serializable_element(b"ab", &msg).unwrap();
+        let c = transcript.get_and_append_challenge(b"r").unwrap();
         // fold the polynomials
         fold_inplace(&mut vs[0], c);
         fold_inplace(&mut ws[0], c);
@@ -132,10 +132,68 @@ fn test_sumcheck() {
     let mut transcript_v = IOPTranscript::<F>::new(b"sumcheck");
     transcript_v.append_message(b"init", b"init").unwrap();
 
+    // Prover side of sumcheck
     let messages = sumcheck(&mut transcript_p, &v, &w);
-    let (challenges, claim) = reduce(&mut transcript_v, &messages, a);
+
+    // Verifier side:
+
+    // Get sumcheck random challenges and tensorcheck claim (random evaluation claim)
+    let (challenges, tensorcheck_claim) = reduce(&mut transcript_v, &messages, a);
+    // Compute evaluation point from challenges
     let challenge_point = linalg::tensor(&challenges);
+
+    // Evaluate "polynomial" v at challenge point
     let b = linalg::inner_product(&v, &challenge_point[..]);
+    // Evaluate "polynomial" w at challenge point
     let c = linalg::inner_product(&w, &challenge_point[..]);
-    assert_eq!(claim, b * c);
+
+    // Check that their product matches the tensorcheck claim
+    assert_eq!(tensorcheck_claim, b * c);
+}
+
+
+#[test]
+fn test_batch_sumcheck() {
+    type F = ark_curve25519::Fr;
+    use crate::linalg;
+    use ark_std::test_rng;
+    use ark_std::UniformRand;
+
+    let mut transcript_p = IOPTranscript::<F>::new(b"sumcheck");
+    transcript_p.append_message(b"init", b"init").unwrap();
+
+    let mut transcript_v = IOPTranscript::<F>::new(b"sumcheck");
+    transcript_v.append_message(b"init", b"init").unwrap();
+
+    // Use batch sumcheck to batch prove the following inner products:
+    // <l_1, r_1> = a
+    // <l_2, r_2> = b
+    let mut rng = test_rng();
+    let l_1 = (0..16).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
+    let r_1 = (0..16).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
+    let a: F = linalg::inner_product(&l_1, &r_1);
+
+    let l_2 = (0..16).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
+    let r_2 = (0..16).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
+    let b: F = linalg::inner_product(&l_2, &r_2);
+
+    // Batching challenge
+    let c: F = F::rand(&mut rng);
+
+    // Prover side
+    let sumcheck_data = batch_sumcheck(&mut transcript_p, [&l_1, &l_2], [&r_1, &r_2], c);
+    let sumcheck_messages = sumcheck_data.1;
+
+    // Verifier side
+    let result = a + c * b;
+    let (sumcheck_challenges, tensorcheck_claim) = reduce(&mut transcript_v, &sumcheck_messages, result);
+    let challenge_point = linalg::tensor(&sumcheck_challenges);
+
+    // Verify the batched tensorcheck claim
+    let y_1 = linalg::inner_product(&l_1, &challenge_point[..]);
+    let y_2 = linalg::inner_product(&r_1, &challenge_point[..]);
+    let y_3 = linalg::inner_product(&l_2, &challenge_point[..]);
+    let y_4 = linalg::inner_product(&r_2, &challenge_point[..]);
+    assert_eq!(tensorcheck_claim, y_1 * y_2 + c * y_3 * y_4);
+
 }
