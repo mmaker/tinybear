@@ -53,8 +53,9 @@ where
     let (sumcheck_challenges, haystack_reduced) =
         sumcheck::reduce(transcript, &proof.sumcheck, proof.sumcheck_claim_haystack);
 
-    let k_gg = proof.evaluations.proof.0;
-    let s = &proof.evaluations.proof.1;
+
+    let k_gg = proof.evaluations.sigma_proof.0;
+    let s = &proof.evaluations.sigma_proof.1;
     transcript.append_serializable_element(b"k_gg", &[k_gg]).unwrap();
     let c = transcript.get_and_append_challenge(b"c0").unwrap();
     let s_gg = G::msm_unchecked(&ck, &s);

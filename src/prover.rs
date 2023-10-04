@@ -81,8 +81,8 @@ pub struct AesProofEvaluations<G: CurveGroup> {
     pub needles: G::ScalarField,
 
     // proofs
-    pub proof: (G, Vec<G::ScalarField>),
-    pub proof_needles: (G, Vec<G::ScalarField>),
+    pub sigma_proof: (G, Vec<G::ScalarField>),
+    pub sigma_proof_needles: (G, Vec<G::ScalarField>),
 }
 
 #[derive(Default, CanonicalSerialize)]
@@ -485,7 +485,7 @@ where
 
     // Compute prover's response
     let s = linalg::linear_combination(&[&k, &frequencies, &inverse_haystack, &inverse_needles], &chal);
-    proof.evaluations.proof = (k_gg, s);
+    proof.evaluations.sigma_proof = (k_gg, s);
 
     // Second Sigma!
     // Needed because of shiftrow permutation:we are evaluating two polynomials in two different points because of shiftrows
@@ -502,7 +502,7 @@ where
         .map(|&x| G::ScalarField::from(x))
         .collect::<Vec<_>>();
     let s = linalg::linear_combination(&[&k, &witness_vector_ff], &[chal]);
-    proof.evaluations.proof_needles = (k_gg, s);
+    proof.evaluations.sigma_proof_needles = (k_gg, s);
 
     println!("{}", witness_vector_ff.len());
     proof
