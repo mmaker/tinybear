@@ -1,16 +1,14 @@
 #![allow(non_snake_case)]
 use ark_ec::CurveGroup;
-use ark_ff::{One, Zero};
 
 use transcript::IOPTranscript;
 
-use crate::linalg;
-use crate::linalg::{tensor};
+use crate::{linalg};
 
 use crate::pedersen::CommitmentKey;
-use crate::{lookup, pedersen};
+use crate::{lookup};
 use crate::sigma::sigma_linear_evaluation_verifier;
-use crate::prover::{prove, TinybearProof};
+use crate::prover::{TinybearProof};
 
 use super::{sumcheck};
 
@@ -87,6 +85,9 @@ where
 
 #[test]
 fn test_end_to_end() {
+    use crate::pedersen;
+    use crate::prover::prove;
+
     type G = ark_curve25519::EdwardsProjective;
 
     let mut transcript_p = IOPTranscript::<ark_curve25519::Fr>::new(b"aes");

@@ -1,16 +1,12 @@
 #![allow(non_snake_case)]
 use ark_std::UniformRand;
 use ark_serialize::CanonicalSerialize;
-use ark_std::Zero;
 use std::ops::Mul;
-use ark_ff::{Field, PrimeField};
 use ark_ec::CurveGroup;
-use ark_ec::VariableBaseMSM;
 use rand::RngCore;
 use rand::CryptoRng;
 use transcript::IOPTranscript;
 
-use crate::pedersen;
 use crate::linalg;
 use crate::pedersen::CommitmentKey;
 use crate::pedersen::commit_hiding;
@@ -39,7 +35,7 @@ pub fn sigma_linear_evaluation_prover<G: CurveGroup>(
     vec_a: &Vec<G::ScalarField>, // public
 ) -> SigmaProof<G> {
     // Create the prover's blinders
-    let mut vec_k = (0..vec_x.len())
+    let vec_k = (0..vec_x.len())
         .map(|_| G::ScalarField::rand(csrng))
         .collect::<Vec<_>>();
 
@@ -104,6 +100,8 @@ pub fn sigma_linear_evaluation_verifier<G: CurveGroup>(
 /// Check proof that <vec_x, vec_a> = y
 #[test]
 fn test_sigma_end_to_end() {
+    use crate::pedersen;
+
     type G = ark_curve25519::EdwardsProjective;
 
     // Basic setup

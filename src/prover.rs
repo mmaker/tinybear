@@ -3,7 +3,7 @@ use std::ops::Mul;
 
 /// See Figure 8 in the paper to learn how this protocol works
 use ark_ec::CurveGroup;
-use ark_ff::{Field, UniformRand, Zero, One};
+use ark_ff::{Field, UniformRand, One};
 use ark_serialize::CanonicalSerialize;
 
 use transcript::IOPTranscript;
@@ -469,7 +469,7 @@ where
     ////////////////////// Final sigma: <f, tensor> = y_2 ////////////////////
 
     let y_2 = linalg::inner_product(&needles, &tensor_evaluation_point);
-    let (Y_2, iota) = pedersen::commit_hiding(rng, &ck, &[y_2]);
+    let (Y_2, _iota) = pedersen::commit_hiding(rng, &ck, &[y_2]);
     // XXX need to figure out what blinder to put for needles below instead of theta
     proof.sigmas.sigma_proof_f_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &needles, theta, epsilon, &tensor_evaluation_point);
     proof.sigmas.Y_2 = Y_2;
