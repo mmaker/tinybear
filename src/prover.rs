@@ -299,45 +299,24 @@ fn challenge_for_witness<F: Field>(vector: &[F], r_sbox: F, r: F, r_xor: F, r2_x
     current_row
 }
 
-pub fn prove<G>(
-    transcript: &mut IOPTranscript<G::ScalarField>,
-    ck: &CommitmentKey<G>,
-    message: [u8; 16],
-    key: &[u8; 16],
-) -> TinybearProof<G>
-where
-    G: CurveGroup,
-{
-    let rng = &mut rand::rngs::OsRng;
 
-    let mut proof = TinybearProof::<G>::default();
-    // witness generation
-    // TIME: 7e-3ms
-    let witness = aes::aes128_trace(message, *key);
-
-    // commit to trace of the program.
-    // TIME: ~3-4ms [outdated]
-    let witness_vector = vectorize_witness(&witness);
-    proof.witness_com = pedersen::commit_u8(&ck, &witness_vector);
-    transcript.append_serializable_element(b"witness_com", &[proof.witness_com]).unwrap();
-
-    //////////////////////////// Lookup protocol //////////////////////////////
-
+/// Compute needles and frequencies
+/// Return (needles, frequencies, frequencies_u8)
+pub fn compute_needles_and_frequencies<F: Field>(
+    witness: &aes::Witness,
+    r_xor: F,
+    r2_xor: F,
+    r_sbox: F,
+    r_mcolpre: F,
+) -> (Vec<F>, Vec<F>, Vec<u8>) {
     // Generate the witness.
     // witness_s_box = [(a, sbox(a)), (b, sbox(b)), ...]
-    let witness_s_box = get_s_box_witness(&witness);
+    let witness_s_box = get_s_box_witness(witness);
 
-    let witness_m_col_pre = get_m_col_pre_witness(&witness);
+    let witness_m_col_pre = get_m_col_pre_witness(witness);
 
     // witness_xor = [(a, b, xor(a, b)), (c, d, xor(c, d)), ...]
-    let witness_xor = get_xor_witness(&witness);
-
-    // Get challenges for the lookup protocol.
-    // one for sbox + mxcolhelp, sbox, two for xor
-    let r_mcolpre = transcript.get_and_append_challenge(b"r_mcolpre").unwrap();
-    let r_sbox = transcript.get_and_append_challenge(b"r_sbox").unwrap();
-    let r_xor = transcript.get_and_append_challenge(b"r_xor").unwrap();
-    let r2_xor = transcript.get_and_append_challenge(b"r2_xor").unwrap();
+    let witness_xor = get_xor_witness(witness);
 
     // Needles: these are the elements that want to be found in the haystack.
     // Note: sbox+mixcol is a single table x -> MXCOLHELP[SBOX[x]]
@@ -364,8 +343,45 @@ where
 
     let frequencies = frequencies_u8
         .iter()
-        .map(|x| G::ScalarField::from(*x))
+        .map(|x| F::from(*x))
         .collect::<Vec<_>>();
+
+    (needles, frequencies, frequencies_u8)
+}
+
+
+pub fn prove<G>(
+    transcript: &mut IOPTranscript<G::ScalarField>,
+    ck: &CommitmentKey<G>,
+    message: [u8; 16],
+    key: &[u8; 16],
+) -> TinybearProof<G>
+where
+    G: CurveGroup,
+{
+    let rng = &mut rand::rngs::OsRng;
+
+    let mut proof = TinybearProof::<G>::default();
+    // witness generation
+    // TIME: 7e-3ms
+    let witness = aes::aes128_trace(message, *key);
+
+    // commit to trace of the program.
+    // TIME: ~3-4ms [outdated]
+    let witness_vector = vectorize_witness(&witness);
+    proof.witness_com = pedersen::commit_u8(&ck, &witness_vector);
+    transcript.append_serializable_element(b"witness_com", &[proof.witness_com]).unwrap();
+
+    //////////////////////////// Lookup protocol //////////////////////////////
+
+    // Get challenges for the lookup protocol.
+    // one for sbox + mxcolhelp, sbox, two for xor
+    let r_mcolpre = transcript.get_and_append_challenge(b"r_mcolpre").unwrap();
+    let r_sbox = transcript.get_and_append_challenge(b"r_sbox").unwrap();
+    let r_xor = transcript.get_and_append_challenge(b"r_xor").unwrap();
+    let r2_xor = transcript.get_and_append_challenge(b"r2_xor").unwrap();
+
+    let (needles, frequencies, frequencies_u8) = compute_needles_and_frequencies(&witness, r_xor, r2_xor, r_sbox, r_mcolpre);
 
     // Commit to m (using mu as the blinder) and send it over
     let mu = G::ScalarField::rand(rng);

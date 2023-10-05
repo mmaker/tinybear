@@ -1,6 +1,6 @@
 use ark_ff::Field;
 
-use crate::aes;
+use crate::aes::{self};
 
 /// Counts the occurrences of 16-bit tuples in the given witness.
 ///
@@ -68,6 +68,7 @@ pub fn compute_u16_needles<'a, F: Field>(
         .flatten()
         .collect()
 }
+
 
 /// Compute the haystack table t
 pub fn compute_haystack<F: Field>(
