@@ -327,7 +327,7 @@ where
     // TIME: ~3-4ms [outdated]
     let witness_vector = vectorize_witness(&witness);
     proof.witness_com = pedersen::commit_u8(&ck, &witness_vector);
-    transcript.append_serializable_element(b"witness", &[proof.witness_com]).unwrap();
+    transcript.append_serializable_element(b"witness_com", &[proof.witness_com]).unwrap();
 
     //////////////////////////// Lookup protocol //////////////////////////////
 
@@ -342,7 +342,6 @@ where
 
     // Get challenges for the lookup protocol.
     // one for sbox + mxcolhelp, sbox, two for xor
-    let lookup_challenge = transcript.get_and_append_challenge(b"lookup_challenge").unwrap();
     let r_mcolpre = transcript.get_and_append_challenge(b"r_mcolpre").unwrap();
     let r_sbox = transcript.get_and_append_challenge(b"r_sbox").unwrap();
     let r_xor = transcript.get_and_append_challenge(b"r_xor").unwrap();
@@ -376,16 +375,31 @@ where
         .map(|x| G::ScalarField::from(*x))
         .collect::<Vec<_>>();
 
+    // Commit to m and send it over
+    proof.freqs_com = pedersen::commit_u8(ck, &frequencies_u8);
+    transcript.append_serializable_element(b"m", &[proof.freqs_com,]).unwrap();
+
+
+    // Get the lookup challenge alpha and compute g and gamma
+    let alpha = transcript.get_and_append_challenge(b"alpha").unwrap();
     // Compute vector of inverse_needles[i] = 1 / (needles[i] + a) = g
     let mut inverse_needles = needles
         .iter()
-        .map(|k| lookup_challenge + k)
+        .map(|k| alpha + k)
         .collect::<Vec<_>>();
     ark_ff::batch_inversion(&mut inverse_needles);
 
-    let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_mcolpre, lookup_challenge);
+    proof.inverse_needles_com = pedersen::commit(&ck, &inverse_needles);
+    // gamma = <g,1>
+    proof.gamma = inverse_needles.iter().sum();
 
-    ////////////////////////////////////////////////////////////////////////////////
+    transcript.append_serializable_element(b"g", &[proof.inverse_needles_com]).unwrap();
+    transcript.append_serializable_element(b"gamma", &[proof.gamma]).unwrap();
+
+    // Finally compute h and t
+    let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_mcolpre, alpha);
+
+    //////////////////////////////// Sanity check ////////////////////////////////////////
     // Sanity check: check that the witness is indeed valid
     // sum_i g_i  = sum_i f_i
     assert_eq!(inverse_haystack.len(), frequencies_u8.len());
@@ -400,21 +414,6 @@ where
             .sum::<G::ScalarField>(),
         inverse_needles.iter().sum::<G::ScalarField>()
     );
-    ////////////////////////////////////////////////////////////////////////////////
-
-    // We commit to inverse_needles and inverse_haystack.
-    // TIME: 1ms
-    proof.inverse_needles_com = pedersen::commit(&ck, &inverse_needles);
-    proof.freqs_com = pedersen::commit_u8(ck, &frequencies_u8);
-    transcript
-        .append_serializable_element(b"nhf", &[
-            proof.inverse_needles_com,
-            proof.freqs_com,
-        ])
-        .unwrap();
-    // gamma = <g,1>
-    proof.gamma = inverse_needles.iter().sum();
-
     ////////////////////////////// Moving towards sumcheck  //////////////////////////////
 
    // Reduce scalar product <f,g> to a tensor product
@@ -478,6 +477,8 @@ where
         .collect::<Vec<_>>();
     let s = linalg::linear_combination(&[&k, &witness_vector_ff], &[chal]);
     proof.evaluations.sigma_proof_needles = (k_gg, s);
+
+    // println!("p chal: {}", chal);
 
     println!("{}", witness_vector_ff.len());
     proof

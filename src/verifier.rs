@@ -25,19 +25,19 @@ where
     G: CurveGroup,
 {
     // Step 2: Lookup verifier challenges
-    transcript.append_serializable_element(b"witness", &[proof.witness_com]).unwrap();
-    let lookup_challenge = transcript.get_and_append_challenge(b"lookup_challenge").unwrap();
+    transcript.append_serializable_element(b"witness_com", &[proof.witness_com]).unwrap();
+
     let r_mcolpre = transcript.get_and_append_challenge(b"r_mcolpre").unwrap();
     let r_sbox = transcript.get_and_append_challenge(b"r_sbox").unwrap();
     let r_xor = transcript.get_and_append_challenge(b"r_xor").unwrap();
     let r2_xor = transcript.get_and_append_challenge(b"r2_xor").unwrap();
 
-    transcript
-        .append_serializable_element(b"nhf", &[
-            proof.inverse_needles_com,
-            proof.freqs_com,
-        ])
-        .unwrap();
+    transcript.append_serializable_element(b"m", &[proof.freqs_com,]).unwrap();
+
+    let alpha = transcript.get_and_append_challenge(b"alpha").unwrap();
+
+    transcript.append_serializable_element(b"g", &[proof.inverse_needles_com]).unwrap();
+    transcript.append_serializable_element(b"gamma", &[proof.gamma]).unwrap();
 
     // Step 5: Sumcheck
     let (sumcheck_challenges, tensorcheck_claim) =
@@ -61,6 +61,8 @@ where
     let k_gg_2 = proof.evaluations.sigma_proof_needles.0;
     transcript.append_serializable_element(b"k_gg2", &[k_gg_2]).unwrap();
     let chal = transcript.get_and_append_challenge(b"chal").unwrap();
+
+    // println!("v chal: {}", chal);
 
     // check the sigma protocol is valid
     let morphism = tensor(&sumcheck_challenges);
