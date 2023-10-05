@@ -55,6 +55,7 @@ where
 
     // Verify sumcheck tensorcheck claim (random evaluation)
     // using yet unverified y_1 and y_2
+    // XXX !!! XXX fix after blinders
     //assert_eq!(tensorcheck_claim, proof.sigmas.y_1 * proof.sigmas.y_2);
 
     // Step 6: Linear evaluations
@@ -73,7 +74,6 @@ where
     let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
     sigma_linear_evaluation_verifier(transcript, &ck, &tensor_evaluation_point, &proof.inverse_needles_com, &proof.sigmas.Y_1,
                                      &proof.sigmas.sigma_proof_q_tensor);
-
 
     // Verify fourth sigma: <h, tensor> = y
     // XXX

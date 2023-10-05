@@ -71,7 +71,8 @@ pub struct LinearEvaluationProofs<G: CurveGroup> {
 
     // Proof and result for <f, tensor> = y_2
     pub sigma_proof_f_tensor: SigmaProof<G>,
-    pub y_2: G::ScalarField,
+    // com(y_1)
+    pub Y_2: G,
 }
 
 #[derive(Default, CanonicalSerialize)]
@@ -456,10 +457,12 @@ where
     proof.sigmas.sigma_proof_q_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &inverse_needles, theta, epsilon, &tensor_evaluation_point);
     proof.sigmas.Y_1 = Y_1;
 
-    // // Fourth sigma: <f, tensor> = y_2
-    // proof.sigmas.sigma_proof_f_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &needles, &tensor_evaluation_point);
-    // proof.sigmas.y_2 =
-    //     linalg::inner_product(&needles, &tensor_evaluation_point);
+    // Fourth sigma: <f, tensor> = y_2
+    let y_2 = linalg::inner_product(&needles, &tensor_evaluation_point);
+    let (Y_2, iota) = pedersen::commit_hiding(rng, &ck, &[y_2]);
+    // XXX need to commit to needles and send it out
+    proof.sigmas.sigma_proof_f_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &needles, theta, epsilon, &tensor_evaluation_point);
+    proof.sigmas.Y_2 = Y_2;
 
     proof
 }
