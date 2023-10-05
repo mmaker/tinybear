@@ -61,17 +61,14 @@ pub struct LinearEvaluationProofs<G: CurveGroup> {
     // Proof for <m, h> = y
     pub sigma_proof_m_h: SigmaProof<G>,
 
-    // Proof for <q, 1> = y
-    pub sigma_proof_q_1: SigmaProof<G>,
-
-    // Proof and result for <q, tensor> = y_1
-    pub sigma_proof_q_tensor: SigmaProof<G>,
+    // Proof and partial result for merged scalar product: <g, tensor + c> = y_1 + c * y
+    pub sigma_proof_q_1_tensor: SigmaProof<G>,
     // com(y_1)
     pub Y_1: G,
 
     // Proof and result for <f, tensor> = y_2
     pub sigma_proof_f_tensor: SigmaProof<G>,
-    // com(y_1)
+    // com(y_2)
     pub Y_2: G,
 }
 
@@ -440,27 +437,40 @@ where
     let vec_ones = vec![G::ScalarField::one(); inverse_needles.len()];
     assert_eq!(linalg::inner_product(&inverse_needles, &vec_ones), y);
 
-    ////////////////////////////// Sigma protocol //////////////////////////////
+    ////////////////////////////// Sigma protocols //////////////////////////////
 
-    // First sigma: <m, h> = y
+
+    ////////////////////// First sigma: <m, h> = y ////////////////////
     proof.sigmas.sigma_proof_m_h = sigma_linear_evaluation_prover(rng, transcript, ck, &frequencies, mu, psi, &inverse_haystack);
+
+    ////////////////////// Second (merged) sigma: <g, tensor + z> = y_1 + z * y ////////////////////
+
+    // Merge two sigmas <g, tensor> = y_1 and <g, 1> = y
+    // multiply the latter with random z and merge by linearity
+    // into <g, tensor + z> = y_1 + z * y
 
     // Public part (evaluation challenge) of tensor relation: ⦻(1, rho_j)
     let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
 
-    // Second sigma: <q, 1> = y
-    proof.sigmas.sigma_proof_q_1 = sigma_linear_evaluation_prover(rng, transcript, ck, &inverse_needles, theta, psi, &vec_ones);
+    let z = transcript.get_and_append_challenge(b"bc").unwrap();
+    let vec_tensor_z: Vec<G::ScalarField> = tensor_evaluation_point.iter().map(|t| *t + z).collect();
 
-    // Third sigma: <q, tensor> = y_1
+    // Compute partial result and commit to it
     let y_1 = linalg::inner_product(&inverse_needles, &tensor_evaluation_point);
     let (Y_1, epsilon) = pedersen::commit_hiding(rng, &ck, &[y_1]);
-    proof.sigmas.sigma_proof_q_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &inverse_needles, theta, epsilon, &tensor_evaluation_point);
+
+    // The blinder of the commitment `Y_1 + z * Y` for use in the sigma below
+    let Y_1_z_Y_blinder = epsilon + z * psi;
+
+    // Finally compute the sigma proof
+    proof.sigmas.sigma_proof_q_1_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &inverse_needles, theta, Y_1_z_Y_blinder, &vec_tensor_z);
     proof.sigmas.Y_1 = Y_1;
 
-    // Fourth sigma: <f, tensor> = y_2
+    ////////////////////// Final sigma: <f, tensor> = y_2 ////////////////////
+
     let y_2 = linalg::inner_product(&needles, &tensor_evaluation_point);
     let (Y_2, iota) = pedersen::commit_hiding(rng, &ck, &[y_2]);
-    // XXX need to commit to needles and send it out
+    // XXX need to figure out what blinder to put for needles below instead of theta
     proof.sigmas.sigma_proof_f_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &needles, theta, epsilon, &tensor_evaluation_point);
     proof.sigmas.Y_2 = Y_2;
 
