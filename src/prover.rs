@@ -61,10 +61,13 @@ pub struct LinearEvaluationProofs<G: CurveGroup> {
     // Proof for <m, h> = y
     pub sigma_proof_m_h: SigmaProof<G>,
 
-    // Proof and partial result for merged scalar product: <g, tensor + c> = y_1 + c * y
-    pub sigma_proof_g_1_tensor: SigmaProof<G>,
-    // y_1
-    pub y_1: G::ScalarField,
+    // Proof for <q, 1> = y
+    pub sigma_proof_q_1: SigmaProof<G>,
+
+    // Proof and result for <q, tensor> = y_1
+    pub sigma_proof_q_tensor: SigmaProof<G>,
+    // com(y_1)
+    pub Y_1: G,
 
     // Proof and result for <f, tensor> = y_2
     pub sigma_proof_f_tensor: SigmaProof<G>,
@@ -444,13 +447,14 @@ where
     // Public part (evaluation challenge) of tensor relation: ⦻(1, rho_j)
     let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
 
-    // // Merge two sigmas <g, tensor> = y_1 and <g, 1> = y
-    // // multiply the latter with random c and merge by linearity
-    // // into <g, tensor + c> = y_1 + c * y
-    // let c = transcript.get_and_append_challenge(b"c").unwrap();
-    // let vec_tensor_c: Vec<G::ScalarField> = tensor_evaluation_point.iter().map(|t| *t + c).collect();
-    // proof.sigmas.sigma_proof_g_1_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &inverse_needles, &vec_tensor_c);
-    // proof.sigmas.y_1 = linalg::inner_product(&inverse_needles, &tensor_evaluation_point);
+    // Second sigma: <q, 1> = y
+    proof.sigmas.sigma_proof_q_1 = sigma_linear_evaluation_prover(rng, transcript, ck, &inverse_needles, theta, psi, &vec_ones);
+
+    // Third sigma: <q, tensor> = y_1
+    let y_1 = linalg::inner_product(&inverse_needles, &tensor_evaluation_point);
+    let (Y_1, epsilon) = pedersen::commit_hiding(rng, &ck, &[y_1]);
+    proof.sigmas.sigma_proof_q_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &inverse_needles, theta, epsilon, &tensor_evaluation_point);
+    proof.sigmas.Y_1 = Y_1;
 
     // // Fourth sigma: <f, tensor> = y_2
     // proof.sigmas.sigma_proof_f_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &needles, &tensor_evaluation_point);

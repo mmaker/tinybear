@@ -64,13 +64,16 @@ where
     sigma_linear_evaluation_verifier(transcript, &ck, &inverse_haystack, &proof.freqs_com, &proof.Y,
                                      &proof.sigmas.sigma_proof_m_h);
 
-    // // Verify merged scalar product: <g, tensor + c> = y_1 + c * y
-    // let c = transcript.get_and_append_challenge(b"c").unwrap();
-    // let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
-    // let vec_tensor_c: Vec<G::ScalarField> = tensor_evaluation_point.iter().map(|t| *t + c).collect();
-    // let y_1_c_y = proof.sigmas.y_1 + c * proof.y;
-    // sigma_linear_evaluation_verifier(transcript, &ck, &proof.inverse_needles_com, &vec_tensor_c, &y_1_c_y,
-    //                                  proof.sigmas.sigma_proof_g_1_tensor.0, &proof.sigmas.sigma_proof_g_1_tensor.1);
+    // Verify second sigma: <q, 1> = y
+    let vec_ones = vec![G::ScalarField::one(); ck.vec_G.len()];
+    sigma_linear_evaluation_verifier(transcript, &ck, &vec_ones, &proof.inverse_needles_com, &proof.Y,
+                                     &proof.sigmas.sigma_proof_q_1);
+
+    // Verify third sigma : <q, tensor> = y_1
+    let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
+    sigma_linear_evaluation_verifier(transcript, &ck, &tensor_evaluation_point, &proof.inverse_needles_com, &proof.sigmas.Y_1,
+                                     &proof.sigmas.sigma_proof_q_tensor);
+
 
     // Verify fourth sigma: <h, tensor> = y
     // XXX
