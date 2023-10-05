@@ -8,3 +8,4 @@ mod u8msm;
 mod linalg;
 mod lookup;
 mod sumcheck;
+mod sigma;
