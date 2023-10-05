@@ -1,6 +1,6 @@
 use ark_std::UniformRand;
 use ark_std::Zero;
-use ark_ff::PrimeField;
+use ark_ff::{Field, PrimeField};
 use ark_ec::CurveGroup;
 use ark_ec::VariableBaseMSM;
 use rand::RngCore;
@@ -24,8 +24,9 @@ pub fn sigma_linear_evaluation_prover<G: CurveGroup>(
     let mut vec_k = (0..k_len)
         .map(|_| G::ScalarField::rand(csrng))
         .collect::<Vec<_>>();
-    // apply the linear relation to the blinders
-    vec_k[0] = -linalg::inner_product(&vec_k[1..], &vec_a[1..]);
+    // set k to be the kernel of a
+    // k_0 = a_0^{-1} * (k_1*a_1 + ... k_n * a_n)
+    vec_k[0] = vec_a[0].inverse().unwrap() * (-linalg::inner_product(&vec_k[1..], &vec_a[1..]));
     // check that the vec_k is the kernel of vec_a
     assert_eq!(linalg::inner_product(&vec_k, &vec_a), G::ScalarField::zero());
 

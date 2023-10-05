@@ -1,10 +1,11 @@
 /// See Figure 8 in the paper to learn how this protocol works
 use ark_ec::CurveGroup;
-use ark_ff::{Field, UniformRand, Zero};
+use ark_ff::{Field, UniformRand, Zero, One};
 use ark_serialize::CanonicalSerialize;
 
 use transcript::IOPTranscript;
 
+use crate::sigma::sigma_linear_evaluation_prover;
 use super::{aes, linalg, lookup, pedersen, sumcheck};
 
 // XXX?
@@ -413,83 +414,35 @@ where
     // check that: <f, g> = |f| - alpha * gamma
     assert_eq!(proof.sumcheck_claim_f_g, G::ScalarField::from(needles.len() as i32) - alpha * proof.gamma);
 
+    // check other linear evaluation scalar products
+    // <m, h> == gamma
+    assert_eq!(linalg::inner_product(&frequencies, &inverse_haystack), proof.gamma);
+    // <g, 1> == gamma
+    let vec_ones = vec![G::ScalarField::one(); inverse_needles.len()];
+    assert_eq!(linalg::inner_product(&inverse_needles, &vec_ones), proof.gamma);
+
     ////////////////////////////// Sigma protocol //////////////////////////////
+
+    // First sigma: <m, h> = gamma
+    proof.sigmas.sigma_proof_m_h = sigma_linear_evaluation_prover(rng, transcript, ck, &frequencies, &inverse_haystack);
+
+    // Second sigma: <g, 1> = gamma
+    proof.sigmas.sigma_proof_g_1 = sigma_linear_evaluation_prover(rng, transcript, ck, &inverse_needles, &vec_ones);
 
     // Public part (evaluation challenge) of tensor relation: ⦻(1, rho_j)
     let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
 
-    // use c_0 to batch inner products together
-    let c_0 = transcript.get_and_append_challenge(b"bc0").unwrap();
-
-    // Compute y_1 = <g, tensor>
+    // Third sigma: <g, tensor> = y_1
+    proof.sigmas.sigma_proof_g_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &inverse_needles, &tensor_evaluation_point);
     proof.sigmas.y_1 =
         linalg::inner_product(&inverse_needles, &tensor_evaluation_point);
-    // Compute y_2 = <f, tensor>
+
+    // Fourth sigma: <f, tensor> = y_2
+    proof.sigmas.sigma_proof_f_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &needles, &tensor_evaluation_point);
     proof.sigmas.y_2 =
         linalg::inner_product(&needles, &tensor_evaluation_point);
 
-    // First Sigma!
-
-    // Create the prover's blinders
-    // let k_len = usize::max(needles.len(), haystack.len());
-    // let mut k = (0..k_len)
-    //     .map(|_| G::ScalarField::rand(rng))
-    //     .collect::<Vec<_>>();
-    // // apply the linear relation to the blinders
-    // k[0] = -linalg::inner_product(&k[1..], &evaluation_challenge[1..]);
-
-    // // Commit to the blinders and send the commitment to the verifier
-    // let k_gg = G::msm_unchecked(&ck, &k);
-    // transcript.append_serializable_element(b"k_gg", &[k_gg]).unwrap();
-
-    // // Get challenges from verifier
-    // let mut vec_delta = [G::ScalarField::rand(rng); 3];
-    // vec_delta[0] = transcript.get_and_append_challenge(b"delta0").unwrap();
-    // vec_delta[1] = transcript.get_and_append_challenge(b"delta1").unwrap();
-    // vec_delta[2] = transcript.get_and_append_challenge(b"delta2").unwrap();
-
-    // // Compute prover's response
-    // let s = linalg::linear_combination(&[&k, &frequencies, &inverse_haystack, &inverse_needles], &vec_delta);
-    // proof.sigmas.sigma_proof = (k_gg, s);
-
-    // // Second Sigma!
-    // // Needed because of shiftrow permutation:we are evaluating two polynomials in two different points because of shiftrows
-    // let mut k = (0..witness_vector.len())
-    //     .map(|_| G::ScalarField::rand(rng))
-    //     .collect::<Vec<_>>();
-    // let morphism = challenge_for_witness(&evaluation_challenge, r_sbox, r_mcolpre, r_xor, r2_xor);
-    // k[0] = -linalg::inner_product(&k[1..], &morphism);
-    // let k_gg = G::msm_unchecked(&ck, &k);
-    // transcript.append_serializable_element(b"k_gg2", &[k_gg]).unwrap();
-    // let chal = transcript.get_and_append_challenge(b"chal").unwrap();
-    // let witness_vector_ff = witness_vector
-    //     .iter()
-    //     .map(|&x| G::ScalarField::from(x))
-    //     .collect::<Vec<_>>();
-    // let s = linalg::linear_combination(&[&k, &witness_vector_ff], &[chal]);
-    // proof.sigmas.sigma_proof_needles = (k_gg, s);
-
-    // // println!("p chal: {}", chal);
-
-    // println!("{}", witness_vector_ff.len());
     proof
-
-    // let chal = [G::ScalarField::rand(rng); 1];
-    // for i in 1440 + 144..evaluation_challenge.len() {
-    //     evaluation_challenge[i] = G::ScalarField::zero();
-    // }
-    // // evaluation_challenge[144*2+1z] = G::ScalarField::from(1);
-    // let expected = linalg::inner_product(&needles, &evaluation_challenge);
-
-    // let morphed_evaluation_challenge =
-    //     challenge_for_witness(&evaluation_challenge, r_sbox, r_mcolpre, r_xor, r2_xor);
-    // let got = linalg::inner_product(&witness_vector_ff, &morphed_evaluation_challenge);
-
-    // assert_eq!(got, expected, "left: {}, right: {}", got, expected);
-    // // let s = misc::linear_combination(&[&k1, &witness_vector_ff], &chal);
-
-    // // proof.sigmas = (K, s);
-    // proof
 }
 
 #[test]
