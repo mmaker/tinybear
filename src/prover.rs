@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 use std::ops::Mul;
 
 /// See Figure 8 in the paper to learn how this protocol works
@@ -79,7 +80,7 @@ pub struct TinybearProof<G: CurveGroup> {
 
     pub inverse_needles_com: G, // com(g)
     pub needles_len: usize, // |f|
-    pub Y: G::Affine, // com(y)
+    pub Y: G, // com(y)
 
     // we actually know the len of this thing,
     // it's going to be 12 for aes128 with 4-bit xor
@@ -390,7 +391,7 @@ where
 
     // Send (Q,Y)
     proof.inverse_needles_com = inverse_needles_com;
-    proof.Y = Y.into_affine();
+    proof.Y = Y;
     proof.needles_len = needles.len();
     transcript.append_serializable_element(b"Q", &[proof.inverse_needles_com]).unwrap();
     transcript.append_serializable_element(b"Y", &[proof.Y]).unwrap();

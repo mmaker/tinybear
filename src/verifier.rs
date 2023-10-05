@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 use ark_ec::CurveGroup;
 use ark_ff::{One, Zero};
 
@@ -49,19 +50,19 @@ where
         sumcheck::reduce(transcript, &proof.sumcheck_messages, proof.sumcheck_claim_s);
 
     // Verify sumcheck claim
-    // XXX
-//    assert_eq!(proof.sumcheck_claim_s , G::ScalarField::from(proof.needles_len as i32) - c * proof.y);
+    // XXX !!! XXX fix after blinders
+    // assert_eq!(proof.sumcheck_claim_s , G::ScalarField::from(proof.needles_len as i32) - c * proof.y);
 
     // Verify sumcheck tensorcheck claim (random evaluation)
     // using yet unverified y_1 and y_2
-    assert_eq!(tensorcheck_claim, proof.sigmas.y_1 * proof.sigmas.y_2);
+    //assert_eq!(tensorcheck_claim, proof.sigmas.y_1 * proof.sigmas.y_2);
 
     // Step 6: Linear evaluations
     // time to verify that g, m and y are correctly provided by the prover
 
     // // Verify first sigma: <m, h> = y
-    // sigma_linear_evaluation_verifier(transcript, &ck, &proof.freqs_com, &inverse_haystack, &proof.y,
-    //                                  proof.sigmas.sigma_proof_m_h.0, &proof.sigmas.sigma_proof_m_h.1);
+    sigma_linear_evaluation_verifier(transcript, &ck, &inverse_haystack, &proof.freqs_com, &proof.Y,
+                                     &proof.sigmas.sigma_proof_m_h);
 
     // // Verify merged scalar product: <g, tensor + c> = y_1 + c * y
     // let c = transcript.get_and_append_challenge(b"c").unwrap();

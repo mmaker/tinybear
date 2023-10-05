@@ -79,7 +79,7 @@ pub fn sigma_linear_evaluation_verifier<G: CurveGroup>(
     X: &G,
     Y: &G,
 
-    proof: SigmaProof<G>
+    proof: &SigmaProof<G>
 ) -> bool {
     transcript.append_serializable_element(b"k_gg", &[proof.K_1, proof.K_2]).unwrap();
 
@@ -94,7 +94,7 @@ pub fn sigma_linear_evaluation_verifier<G: CurveGroup>(
     let z_i_a_i_G_i = ck.vec_G[0].mul(&linalg::inner_product(&proof.vec_z, &vec_a));
     assert_eq!(z_i_a_i_G_i + ck.H.mul(proof.zeta_2) - proof.K_2 - Y.mul(c), G::zero());
 
-    transcript.append_serializable_element(b"response", &[proof.vec_z]).unwrap();
+    transcript.append_serializable_element(b"response", &[proof.vec_z.clone()]).unwrap();
     transcript.append_serializable_element(b"response2", &[proof.zeta_1, proof.zeta_2]).unwrap();
 
     // XXX
@@ -135,5 +135,5 @@ fn test_sigma_end_to_end() {
     // Let's prove!
     let sigma_proof = sigma_linear_evaluation_prover(rng, &mut transcript_p, &ck, &vec_x, phi, psi, &vec_a);
 
-    sigma_linear_evaluation_verifier(&mut transcript_v, &ck, &vec_a, &X, &Y, sigma_proof);
+    sigma_linear_evaluation_verifier(&mut transcript_v, &ck, &vec_a, &X, &Y, &sigma_proof);
 }
