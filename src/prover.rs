@@ -8,6 +8,7 @@ use ark_serialize::CanonicalSerialize;
 use transcript::IOPTranscript;
 
 use crate::{sigma::sigma_linear_evaluation_prover, pedersen::CommitmentKey};
+use crate::sigma::SigmaProof;
 use super::{aes, linalg, lookup, pedersen, sumcheck};
 
 // XXX?
@@ -57,15 +58,15 @@ const OFFSETS: AesWitnessRegions = {
 #[derive(Default, CanonicalSerialize)]
 pub struct LinearEvaluationProofs<G: CurveGroup> {
     // Proof for <m, h> = y
-    pub sigma_proof_m_h: (G, Vec<G::ScalarField>),
+    pub sigma_proof_m_h: SigmaProof<G>,
 
     // Proof and partial result for merged scalar product: <g, tensor + c> = y_1 + c * y
-    pub sigma_proof_g_1_tensor: (G, Vec<G::ScalarField>),
+    pub sigma_proof_g_1_tensor: SigmaProof<G>,
     // y_1
     pub y_1: G::ScalarField,
 
     // Proof and result for <f, tensor> = y_2
-    pub sigma_proof_f_tensor: (G, Vec<G::ScalarField>),
+    pub sigma_proof_f_tensor: SigmaProof<G>,
     pub y_2: G::ScalarField,
 }
 
@@ -436,11 +437,11 @@ where
 
     ////////////////////////////// Sigma protocol //////////////////////////////
 
-    // // First sigma: <m, h> = y
-    // proof.sigmas.sigma_proof_m_h = sigma_linear_evaluation_prover(rng, transcript, ck, &frequencies, &inverse_haystack);
+    // First sigma: <m, h> = y
+    proof.sigmas.sigma_proof_m_h = sigma_linear_evaluation_prover(rng, transcript, ck, &frequencies, mu, psi, &inverse_haystack);
 
-    // // Public part (evaluation challenge) of tensor relation: ⦻(1, rho_j)
-    // let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
+    // Public part (evaluation challenge) of tensor relation: ⦻(1, rho_j)
+    let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
 
     // // Merge two sigmas <g, tensor> = y_1 and <g, 1> = y
     // // multiply the latter with random c and merge by linearity

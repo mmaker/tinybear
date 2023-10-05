@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 use ark_std::UniformRand;
+use ark_serialize::CanonicalSerialize;
 use ark_std::Zero;
 use std::ops::Mul;
 use ark_ff::{Field, PrimeField};
@@ -14,6 +15,7 @@ use crate::linalg;
 use crate::pedersen::CommitmentKey;
 use crate::pedersen::commit_hiding;
 
+#[derive(Default, CanonicalSerialize)]
 pub struct SigmaProof<G: CurveGroup> {
     pub K_1: G::Affine,
     pub K_2: G::Affine,
