@@ -7,7 +7,7 @@ use crate::linalg;
 use crate::linalg::{tensor};
 
 use crate:: pedersen;
-use crate::prover::{prove, ProofTranscript};
+use crate::prover::{prove, Proof};
 
 use super::{sumcheck};
 
@@ -19,7 +19,7 @@ pub fn verify<G>(
     transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &[G::Affine],
     k: [u8; 16],
-    proof: &ProofTranscript<G>,
+    proof: &Proof<G>,
 ) -> ProofResult
 where
     G: CurveGroup,
@@ -48,19 +48,19 @@ where
     let evaluation_point = linalg::tensor(&sumcheck_challenges);
 
     // First sigma
-    let k_gg = proof.evaluations.sigma_proof.0;
-    let s = &proof.evaluations.sigma_proof.1;
-    transcript.append_serializable_element(b"k_gg", &[k_gg]).unwrap();
+    // let k_gg = proof.sigmas.sigma_proof.0;
+    // let s = &proof.sigmas.sigma_proof.1;
+    // transcript.append_serializable_element(b"k_gg", &[k_gg]).unwrap();
 
-    let mut vec_delta = [G::ScalarField::zero(); 3];
-    vec_delta[0] = transcript.get_and_append_challenge(b"delta0").unwrap();
-    vec_delta[1] = transcript.get_and_append_challenge(b"delta1").unwrap();
-    vec_delta[2] = transcript.get_and_append_challenge(b"delta2").unwrap();
+    // let mut vec_delta = [G::ScalarField::zero(); 3];
+    // vec_delta[0] = transcript.get_and_append_challenge(b"delta0").unwrap();
+    // vec_delta[1] = transcript.get_and_append_challenge(b"delta1").unwrap();
+    // vec_delta[2] = transcript.get_and_append_challenge(b"delta2").unwrap();
 
-    // Second sigma
-    let k_gg_2 = proof.evaluations.sigma_proof_needles.0;
-    transcript.append_serializable_element(b"k_gg2", &[k_gg_2]).unwrap();
-    let chal = transcript.get_and_append_challenge(b"chal").unwrap();
+    // // Second sigma
+    // let k_gg_2 = proof.sigmas.sigma_proof_needles.0;
+    // transcript.append_serializable_element(b"k_gg2", &[k_gg_2]).unwrap();
+    // let chal = transcript.get_and_append_challenge(b"chal").unwrap();
 
     // println!("v chal: {}", chal);
 

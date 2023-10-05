@@ -52,23 +52,24 @@ const OFFSETS: AesWitnessRegions = {
 
 // A summary of the evaluations and proofs required in the protocol.
 #[derive(Default, CanonicalSerialize)]
-pub struct AesProofEvaluations<G: CurveGroup> {
-    // inverse_needles(sumcheck_challenges)
-    pub inverse_needles: G::ScalarField,
-    // inverse_haystack(sumcheck_challenges)
-    pub inverse_haystack: G::ScalarField,
-    /// freqs(twist)
-    pub freqs: G::ScalarField,
-    // needles(sumcheck_challenges)
-    pub needles: G::ScalarField,
+pub struct LinearEvaluationProofs<G: CurveGroup> {
+    // Proof for <m, h> = gamma
+    pub sigma_proof_m_h: (G, Vec<G::ScalarField>),
 
-    // proofs
-    pub sigma_proof: (G, Vec<G::ScalarField>),
-    pub sigma_proof_needles: (G, Vec<G::ScalarField>),
+    // Proof for <g, 1> = gamma
+    pub sigma_proof_g_1: (G, Vec<G::ScalarField>),
+
+    // Proof and result for <g, tensor> = y_1
+    pub sigma_proof_g_tensor: (G, Vec<G::ScalarField>),
+    pub y_1: G::ScalarField,
+
+    // Proof and result for <f, tensor> = y_2
+    pub sigma_proof_f_tensor: (G, Vec<G::ScalarField>),
+    pub y_2: G::ScalarField,
 }
 
 #[derive(Default, CanonicalSerialize)]
-pub struct ProofTranscript<G: CurveGroup> {
+pub struct Proof<G: CurveGroup> {
     pub witness_com: G,
     // we actually know the len of the items below, it's LOOKUP_CHUNKS
     pub freqs_com: G, // com(m)
@@ -80,9 +81,11 @@ pub struct ProofTranscript<G: CurveGroup> {
     // it's going to be 17 for 8-bit table xor
     // XXX
     pub sumcheck_messages: Vec<[G::ScalarField; 2]>,
+    // <f,g> = |f| - alpha * gamma
     pub sumcheck_claim_f_g: G::ScalarField,
 
-    pub evaluations: AesProofEvaluations<G>,
+    // Proofs and results for the linear evaluation proofs
+    pub sigmas: LinearEvaluationProofs<G>,
 }
 
 /// Transforms an AES witness into a flattened vector representation.
@@ -294,13 +297,13 @@ pub fn prove<G>(
     ck: &[G::Affine],
     message: [u8; 16],
     key: &[u8; 16],
-) -> ProofTranscript<G>
+) -> Proof<G>
 where
     G: CurveGroup,
 {
     let rng = &mut rand::rngs::OsRng;
 
-    let mut proof = ProofTranscript::<G>::default();
+    let mut proof = Proof::<G>::default();
     // witness generation
     // TIME: 7e-3ms
     let witness = aes::aes128_trace(message, *key);
@@ -412,62 +415,63 @@ where
 
     ////////////////////////////// Sigma protocol //////////////////////////////
 
+    // Public part (evaluation challenge) of tensor relation: ⦻(1, rho_j)
+    let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
+
     // use c_0 to batch inner products together
     let c_0 = transcript.get_and_append_challenge(b"bc0").unwrap();
 
-    // Public part of tensor relation:
-    let evaluation_challenge = linalg::tensor(&sumcheck_challenges);
-
-    proof.evaluations.inverse_haystack =
-        linalg::inner_product(&inverse_haystack, &evaluation_challenge);
-    proof.evaluations.inverse_needles =
-        linalg::inner_product(&inverse_needles, &evaluation_challenge);
-    proof.evaluations.freqs = linalg::inner_product_u8(&frequencies_u8, &evaluation_challenge);
+    // Compute y_1 = <g, tensor>
+    proof.sigmas.y_1 =
+        linalg::inner_product(&inverse_needles, &tensor_evaluation_point);
+    // Compute y_2 = <f, tensor>
+    proof.sigmas.y_2 =
+        linalg::inner_product(&needles, &tensor_evaluation_point);
 
     // First Sigma!
 
     // Create the prover's blinders
-    let k_len = usize::max(needles.len(), haystack.len());
-    let mut k = (0..k_len)
-        .map(|_| G::ScalarField::rand(rng))
-        .collect::<Vec<_>>();
-    // apply the linear relation to the blinders
-    k[0] = -linalg::inner_product(&k[1..], &evaluation_challenge[1..]);
+    // let k_len = usize::max(needles.len(), haystack.len());
+    // let mut k = (0..k_len)
+    //     .map(|_| G::ScalarField::rand(rng))
+    //     .collect::<Vec<_>>();
+    // // apply the linear relation to the blinders
+    // k[0] = -linalg::inner_product(&k[1..], &evaluation_challenge[1..]);
 
-    // Commit to the blinders and send the commitment to the verifier
-    let k_gg = G::msm_unchecked(&ck, &k);
-    transcript.append_serializable_element(b"k_gg", &[k_gg]).unwrap();
+    // // Commit to the blinders and send the commitment to the verifier
+    // let k_gg = G::msm_unchecked(&ck, &k);
+    // transcript.append_serializable_element(b"k_gg", &[k_gg]).unwrap();
 
-    // Get challenges from verifier
-    let mut vec_delta = [G::ScalarField::rand(rng); 3];
-    vec_delta[0] = transcript.get_and_append_challenge(b"delta0").unwrap();
-    vec_delta[1] = transcript.get_and_append_challenge(b"delta1").unwrap();
-    vec_delta[2] = transcript.get_and_append_challenge(b"delta2").unwrap();
+    // // Get challenges from verifier
+    // let mut vec_delta = [G::ScalarField::rand(rng); 3];
+    // vec_delta[0] = transcript.get_and_append_challenge(b"delta0").unwrap();
+    // vec_delta[1] = transcript.get_and_append_challenge(b"delta1").unwrap();
+    // vec_delta[2] = transcript.get_and_append_challenge(b"delta2").unwrap();
 
-    // Compute prover's response
-    let s = linalg::linear_combination(&[&k, &frequencies, &inverse_haystack, &inverse_needles], &vec_delta);
-    proof.evaluations.sigma_proof = (k_gg, s);
+    // // Compute prover's response
+    // let s = linalg::linear_combination(&[&k, &frequencies, &inverse_haystack, &inverse_needles], &vec_delta);
+    // proof.sigmas.sigma_proof = (k_gg, s);
 
-    // Second Sigma!
-    // Needed because of shiftrow permutation:we are evaluating two polynomials in two different points because of shiftrows
-    let mut k = (0..witness_vector.len())
-        .map(|_| G::ScalarField::rand(rng))
-        .collect::<Vec<_>>();
-    let morphism = challenge_for_witness(&evaluation_challenge, r_sbox, r_mcolpre, r_xor, r2_xor);
-    k[0] = -linalg::inner_product(&k[1..], &morphism);
-    let k_gg = G::msm_unchecked(&ck, &k);
-    transcript.append_serializable_element(b"k_gg2", &[k_gg]).unwrap();
-    let chal = transcript.get_and_append_challenge(b"chal").unwrap();
-    let witness_vector_ff = witness_vector
-        .iter()
-        .map(|&x| G::ScalarField::from(x))
-        .collect::<Vec<_>>();
-    let s = linalg::linear_combination(&[&k, &witness_vector_ff], &[chal]);
-    proof.evaluations.sigma_proof_needles = (k_gg, s);
+    // // Second Sigma!
+    // // Needed because of shiftrow permutation:we are evaluating two polynomials in two different points because of shiftrows
+    // let mut k = (0..witness_vector.len())
+    //     .map(|_| G::ScalarField::rand(rng))
+    //     .collect::<Vec<_>>();
+    // let morphism = challenge_for_witness(&evaluation_challenge, r_sbox, r_mcolpre, r_xor, r2_xor);
+    // k[0] = -linalg::inner_product(&k[1..], &morphism);
+    // let k_gg = G::msm_unchecked(&ck, &k);
+    // transcript.append_serializable_element(b"k_gg2", &[k_gg]).unwrap();
+    // let chal = transcript.get_and_append_challenge(b"chal").unwrap();
+    // let witness_vector_ff = witness_vector
+    //     .iter()
+    //     .map(|&x| G::ScalarField::from(x))
+    //     .collect::<Vec<_>>();
+    // let s = linalg::linear_combination(&[&k, &witness_vector_ff], &[chal]);
+    // proof.sigmas.sigma_proof_needles = (k_gg, s);
 
-    // println!("p chal: {}", chal);
+    // // println!("p chal: {}", chal);
 
-    println!("{}", witness_vector_ff.len());
+    // println!("{}", witness_vector_ff.len());
     proof
 
     // let chal = [G::ScalarField::rand(rng); 1];
@@ -507,5 +511,5 @@ fn test_prove() {
 
     let proof = prove::<G>(&mut transcript, &ck, message, &key);
     println!("size: {}", proof.compressed_size());
-    println!("size: {}", proof.evaluations.compressed_size());
+    println!("size: {}", proof.sigmas.compressed_size());
 }
