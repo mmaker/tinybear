@@ -9,7 +9,7 @@ use crate::linalg::{tensor};
 use crate::pedersen::CommitmentKey;
 use crate::{lookup, pedersen};
 use crate::sigma::sigma_linear_evaluation_verifier;
-use crate::prover::{prove, Proof};
+use crate::prover::{prove, TinybearProof};
 
 use super::{sumcheck};
 
@@ -21,7 +21,7 @@ pub fn verify<G>(
     transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &CommitmentKey<G>,
     k: [u8; 16],
-    proof: &Proof<G>,
+    proof: &TinybearProof<G>,
 ) -> ProofResult
 where
     G: CurveGroup,
@@ -36,41 +36,42 @@ where
 
     transcript.append_serializable_element(b"m", &[proof.freqs_com,]).unwrap();
 
-    let alpha = transcript.get_and_append_challenge(b"alpha").unwrap();
+    let c = transcript.get_and_append_challenge(b"c").unwrap();
 
-    transcript.append_serializable_element(b"g", &[proof.inverse_needles_com]).unwrap();
-    transcript.append_serializable_element(b"gamma", &[proof.gamma]).unwrap();
+    transcript.append_serializable_element(b"Q", &[proof.inverse_needles_com]).unwrap();
+    transcript.append_serializable_element(b"Y", &[proof.Y]).unwrap();
 
     // Compute h and t
-    let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_mcolpre, alpha);
+    let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_mcolpre, c);
 
     // Step 5: Sumcheck
     let (sumcheck_challenges, tensorcheck_claim) =
-        sumcheck::reduce(transcript, &proof.sumcheck_messages, proof.sumcheck_claim_f_g);
+        sumcheck::reduce(transcript, &proof.sumcheck_messages, proof.sumcheck_claim_s);
 
     // Verify sumcheck claim
-    assert_eq!(proof.sumcheck_claim_f_g , G::ScalarField::from(proof.needles_len as i32) - alpha * proof.gamma);
+    // XXX
+//    assert_eq!(proof.sumcheck_claim_s , G::ScalarField::from(proof.needles_len as i32) - c * proof.y);
 
     // Verify sumcheck tensorcheck claim (random evaluation)
     // using yet unverified y_1 and y_2
     assert_eq!(tensorcheck_claim, proof.sigmas.y_1 * proof.sigmas.y_2);
 
     // Step 6: Linear evaluations
-    // time to verify that g, m and gamma are correctly provided by the prover
+    // time to verify that g, m and y are correctly provided by the prover
 
-    // // Verify first sigma: <m, h> = gamma
-    // sigma_linear_evaluation_verifier(transcript, &ck, &proof.freqs_com, &inverse_haystack, &proof.gamma,
+    // // Verify first sigma: <m, h> = y
+    // sigma_linear_evaluation_verifier(transcript, &ck, &proof.freqs_com, &inverse_haystack, &proof.y,
     //                                  proof.sigmas.sigma_proof_m_h.0, &proof.sigmas.sigma_proof_m_h.1);
 
-    // // Verify merged scalar product: <g, tensor + c> = y_1 + c * gamma
+    // // Verify merged scalar product: <g, tensor + c> = y_1 + c * y
     // let c = transcript.get_and_append_challenge(b"c").unwrap();
     // let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
     // let vec_tensor_c: Vec<G::ScalarField> = tensor_evaluation_point.iter().map(|t| *t + c).collect();
-    // let y_1_c_gamma = proof.sigmas.y_1 + c * proof.gamma;
-    // sigma_linear_evaluation_verifier(transcript, &ck, &proof.inverse_needles_com, &vec_tensor_c, &y_1_c_gamma,
+    // let y_1_c_y = proof.sigmas.y_1 + c * proof.y;
+    // sigma_linear_evaluation_verifier(transcript, &ck, &proof.inverse_needles_com, &vec_tensor_c, &y_1_c_y,
     //                                  proof.sigmas.sigma_proof_g_1_tensor.0, &proof.sigmas.sigma_proof_g_1_tensor.1);
 
-    // Verify fourth sigma: <h, tensor> = gamma
+    // Verify fourth sigma: <h, tensor> = y
     // XXX
     // let morphism = tensor(&sumcheck_challenges);
     // let morphism_witness = challenge_for_witness(&morphism, r_sbox, r_mcolpre, r_xor, r2_xor);

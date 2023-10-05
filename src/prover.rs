@@ -1,3 +1,5 @@
+use std::ops::Mul;
+
 /// See Figure 8 in the paper to learn how this protocol works
 use ark_ec::CurveGroup;
 use ark_ff::{Field, UniformRand, Zero, One};
@@ -54,10 +56,10 @@ const OFFSETS: AesWitnessRegions = {
 // A summary of the evaluations and proofs required in the protocol.
 #[derive(Default, CanonicalSerialize)]
 pub struct LinearEvaluationProofs<G: CurveGroup> {
-    // Proof for <m, h> = gamma
+    // Proof for <m, h> = y
     pub sigma_proof_m_h: (G, Vec<G::ScalarField>),
 
-    // Proof and partial result for merged scalar product: <g, tensor + c> = y_1 + c * gamma
+    // Proof and partial result for merged scalar product: <g, tensor + c> = y_1 + c * y
     pub sigma_proof_g_1_tensor: (G, Vec<G::ScalarField>),
     // y_1
     pub y_1: G::ScalarField,
@@ -68,7 +70,7 @@ pub struct LinearEvaluationProofs<G: CurveGroup> {
 }
 
 #[derive(Default, CanonicalSerialize)]
-pub struct Proof<G: CurveGroup> {
+pub struct TinybearProof<G: CurveGroup> {
     pub witness_com: G,
 
     // we actually know the len of the items below, it's LOOKUP_CHUNKS
@@ -76,16 +78,15 @@ pub struct Proof<G: CurveGroup> {
 
     pub inverse_needles_com: G, // com(g)
     pub needles_len: usize, // |f|
-
-    pub gamma: G::ScalarField, // gamma = <g,1>
+    pub Y: G::Affine, // com(y)
 
     // we actually know the len of this thing,
     // it's going to be 12 for aes128 with 4-bit xor
     // it's going to be 17 for 8-bit table xor
     // XXX
     pub sumcheck_messages: Vec<[G::ScalarField; 2]>,
-    // <f,g> = |f| - alpha * gamma
-    pub sumcheck_claim_f_g: G::ScalarField,
+    // <q,f> = s = |f| - c * y
+    pub sumcheck_claim_s: G::ScalarField,
 
     // Proofs and results for the linear evaluation proofs
     pub sigmas: LinearEvaluationProofs<G>,
@@ -300,13 +301,13 @@ pub fn prove<G>(
     ck: &CommitmentKey<G>,
     message: [u8; 16],
     key: &[u8; 16],
-) -> Proof<G>
+) -> TinybearProof<G>
 where
     G: CurveGroup,
 {
     let rng = &mut rand::rngs::OsRng;
 
-    let mut proof = Proof::<G>::default();
+    let mut proof = TinybearProof::<G>::default();
     // witness generation
     // TIME: 7e-3ms
     let witness = aes::aes128_trace(message, *key);
@@ -363,44 +364,53 @@ where
         .map(|x| G::ScalarField::from(*x))
         .collect::<Vec<_>>();
 
-    // Commit to m and send it over
-    proof.freqs_com = pedersen::commit_u8(ck, &frequencies_u8);
-    transcript.append_serializable_element(b"m", &[proof.freqs_com,]).unwrap();
+    // Commit to m (using mu as the blinder) and send it over
+    let mu = G::ScalarField::rand(rng);
+    let freqs_com = pedersen::commit_u8(ck, &frequencies_u8) + ck.H.mul(mu);
 
+    // Send M
+    proof.freqs_com = freqs_com;
+    transcript.append_serializable_element(b"m", &[proof.freqs_com]).unwrap();
 
-    // Get the lookup challenge alpha and compute g and gamma
-    let alpha = transcript.get_and_append_challenge(b"alpha").unwrap();
-    // Compute vector of inverse_needles[i] = 1 / (needles[i] + a) = g
+    // Get the lookup challenge c and compute q and y
+    let c = transcript.get_and_append_challenge(b"c").unwrap();
+    // Compute vector of inverse_needles[i] = 1 / (needles[i] + a) = q
     let mut inverse_needles = needles
         .iter()
-        .map(|k| alpha + k)
+        .map(|k| c + k)
         .collect::<Vec<_>>();
     ark_ff::batch_inversion(&mut inverse_needles);
 
-    proof.inverse_needles_com = pedersen::commit(&ck, &inverse_needles);
-    // gamma = <g,1>
-    proof.gamma = inverse_needles.iter().sum();
-    proof.needles_len = needles.len();
+    // Q = Com(q)
+    let (inverse_needles_com, theta) = pedersen::commit_hiding(rng, &ck, &inverse_needles);
+    // y = <g,1>
+    let y = inverse_needles.iter().sum();
+    let (Y, psi) = pedersen::commit_hiding(rng, &ck, &[y]);
 
-    transcript.append_serializable_element(b"g", &[proof.inverse_needles_com]).unwrap();
-    transcript.append_serializable_element(b"gamma", &[proof.gamma]).unwrap();
+    // Send (Q,Y)
+    proof.inverse_needles_com = inverse_needles_com;
+    proof.Y = Y.into_affine();
+    proof.needles_len = needles.len();
+    transcript.append_serializable_element(b"Q", &[proof.inverse_needles_com]).unwrap();
+    transcript.append_serializable_element(b"Y", &[proof.Y]).unwrap();
 
     // Finally compute h and t
-    let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_mcolpre, alpha);
+    let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_mcolpre, c);
 
     ////////////////////////////// Sumcheck  //////////////////////////////
 
    // Reduce scalar product <f,g> to a tensor product
    let (sumcheck_challenges, sumcheck_messages) = sumcheck::sumcheck(transcript, &needles, &inverse_needles);
+
     // pour sumcheck messages into the proof
     proof.sumcheck_messages = sumcheck_messages;
-    // add inner product result to the proof: <f, g> = |f| - alpha * gamma
-    proof.sumcheck_claim_f_g = linalg::inner_product(&needles, &inverse_needles);
+    // add inner product result to the proof: <f, g> = s = |f| - c * y
+    proof.sumcheck_claim_s = linalg::inner_product(&needles, &inverse_needles);
 
     //////////////////////////////// Sanity checks ////////////////////////////////////////
 
     // Sanity check: check that the witness is indeed valid
-    // sum_i g_i  = sum_i f_i
+    // sum_i q_i  = sum_i f_i
     assert_eq!(inverse_haystack.len(), frequencies_u8.len());
     for x in &needles {
         assert!(haystack.contains(x))
@@ -414,27 +424,27 @@ where
         inverse_needles.iter().sum::<G::ScalarField>()
     );
 
-    // check that: <f, g> = |f| - alpha * gamma
-    assert_eq!(proof.sumcheck_claim_f_g, G::ScalarField::from(needles.len() as i32) - alpha * proof.gamma);
+    // check that: <q, f> = |f| - c * y
+    assert_eq!(proof.sumcheck_claim_s, G::ScalarField::from(needles.len() as i32) - c * y);
 
     // check other linear evaluation scalar products
-    // <m, h> == gamma
-    assert_eq!(linalg::inner_product(&frequencies, &inverse_haystack), proof.gamma);
-    // <g, 1> == gamma
+    // <m, h> == y
+    assert_eq!(linalg::inner_product(&frequencies, &inverse_haystack), y);
+    // <g, 1> == y
     let vec_ones = vec![G::ScalarField::one(); inverse_needles.len()];
-    assert_eq!(linalg::inner_product(&inverse_needles, &vec_ones), proof.gamma);
+    assert_eq!(linalg::inner_product(&inverse_needles, &vec_ones), y);
 
     ////////////////////////////// Sigma protocol //////////////////////////////
 
-    // // First sigma: <m, h> = gamma
+    // // First sigma: <m, h> = y
     // proof.sigmas.sigma_proof_m_h = sigma_linear_evaluation_prover(rng, transcript, ck, &frequencies, &inverse_haystack);
 
     // // Public part (evaluation challenge) of tensor relation: ⦻(1, rho_j)
     // let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
 
-    // // Merge two sigmas <g, tensor> = y_1 and <g, 1> = gamma
+    // // Merge two sigmas <g, tensor> = y_1 and <g, 1> = y
     // // multiply the latter with random c and merge by linearity
-    // // into <g, tensor + c> = y_1 + c * gamma
+    // // into <g, tensor + c> = y_1 + c * y
     // let c = transcript.get_and_append_challenge(b"c").unwrap();
     // let vec_tensor_c: Vec<G::ScalarField> = tensor_evaluation_point.iter().map(|t| *t + c).collect();
     // proof.sigmas.sigma_proof_g_1_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &inverse_needles, &vec_tensor_c);
