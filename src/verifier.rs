@@ -1,12 +1,13 @@
 use ark_ec::CurveGroup;
-use ark_ff::{Zero};
+use ark_ff::{One, Zero};
 
 use transcript::IOPTranscript;
 
 use crate::linalg;
 use crate::linalg::{tensor};
 
-use crate:: pedersen;
+use crate::{lookup, pedersen};
+use crate::sigma::sigma_linear_evaluation_verifier;
 use crate::prover::{prove, Proof};
 
 use super::{sumcheck};
@@ -39,33 +40,33 @@ where
     transcript.append_serializable_element(b"g", &[proof.inverse_needles_com]).unwrap();
     transcript.append_serializable_element(b"gamma", &[proof.gamma]).unwrap();
 
+    // Compute h and t
+    let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_mcolpre, alpha);
+
     // Step 5: Sumcheck
     let (sumcheck_challenges, tensorcheck_claim) =
         sumcheck::reduce(transcript, &proof.sumcheck_messages, proof.sumcheck_claim_f_g);
 
     // Step 6: Linear evaluations
-    let c_0 = transcript.get_and_append_challenge(b"bc0").unwrap();
-    let evaluation_point = linalg::tensor(&sumcheck_challenges);
 
-    // First sigma
-    // let k_gg = proof.sigmas.sigma_proof.0;
-    // let s = &proof.sigmas.sigma_proof.1;
-    // transcript.append_serializable_element(b"k_gg", &[k_gg]).unwrap();
 
-    // let mut vec_delta = [G::ScalarField::zero(); 3];
-    // vec_delta[0] = transcript.get_and_append_challenge(b"delta0").unwrap();
-    // vec_delta[1] = transcript.get_and_append_challenge(b"delta1").unwrap();
-    // vec_delta[2] = transcript.get_and_append_challenge(b"delta2").unwrap();
+    // Verify first sigma: <m, h> = gamma
+    sigma_linear_evaluation_verifier(transcript, &ck, &proof.freqs_com, &inverse_haystack, &proof.gamma,
+                                     proof.sigmas.sigma_proof_m_h.0, &proof.sigmas.sigma_proof_m_h.1);
 
-    // // Second sigma
-    // let k_gg_2 = proof.sigmas.sigma_proof_needles.0;
-    // transcript.append_serializable_element(b"k_gg2", &[k_gg_2]).unwrap();
-    // let chal = transcript.get_and_append_challenge(b"chal").unwrap();
+    // Verify second sigma: <g, 1> = gamma
+    let vec_ones = vec![G::ScalarField::one(); ck.len()];
+    sigma_linear_evaluation_verifier(transcript, &ck, &proof.inverse_needles_com, &vec_ones, &proof.gamma,
+                                     proof.sigmas.sigma_proof_g_1.0, &proof.sigmas.sigma_proof_g_1.1);
 
-    // println!("v chal: {}", chal);
+    // Verify third sigma : <g, tensor> = gamma
+    let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
+    sigma_linear_evaluation_verifier(transcript, &ck, &proof.inverse_needles_com, &tensor_evaluation_point, &proof.sigmas.y_1,
+                                     proof.sigmas.sigma_proof_g_tensor.0, &proof.sigmas.sigma_proof_g_tensor.1);
 
-    // check the sigma protocol is valid
-    let morphism = tensor(&sumcheck_challenges);
+    // Verify fourth sigmas: <h, tensor> = gamma
+    // XXX
+    // let morphism = tensor(&sumcheck_challenges);
     // let morphism_witness = challenge_for_witness(&morphism, r_sbox, r_mcolpre, r_xor, r2_xor);
 
     Err(InvalidProof)
