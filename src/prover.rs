@@ -426,24 +426,24 @@ where
 
     ////////////////////////////// Sigma protocol //////////////////////////////
 
-    // First sigma: <m, h> = gamma
-    proof.sigmas.sigma_proof_m_h = sigma_linear_evaluation_prover(rng, transcript, ck, &frequencies, &inverse_haystack);
+    // // First sigma: <m, h> = gamma
+    // proof.sigmas.sigma_proof_m_h = sigma_linear_evaluation_prover(rng, transcript, ck, &frequencies, &inverse_haystack);
 
-    // Public part (evaluation challenge) of tensor relation: ⦻(1, rho_j)
-    let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
+    // // Public part (evaluation challenge) of tensor relation: ⦻(1, rho_j)
+    // let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
 
-    // Merge two sigmas <g, tensor> = y_1 and <g, 1> = gamma
-    // multiply the latter with random c and merge by linearity
-    // into <g, tensor + c> = y_1 + c * gamma
-    let c = transcript.get_and_append_challenge(b"c").unwrap();
-    let vec_tensor_c: Vec<G::ScalarField> = tensor_evaluation_point.iter().map(|t| *t + c).collect();
-    proof.sigmas.sigma_proof_g_1_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &inverse_needles, &vec_tensor_c);
-    proof.sigmas.y_1 = linalg::inner_product(&inverse_needles, &tensor_evaluation_point);
+    // // Merge two sigmas <g, tensor> = y_1 and <g, 1> = gamma
+    // // multiply the latter with random c and merge by linearity
+    // // into <g, tensor + c> = y_1 + c * gamma
+    // let c = transcript.get_and_append_challenge(b"c").unwrap();
+    // let vec_tensor_c: Vec<G::ScalarField> = tensor_evaluation_point.iter().map(|t| *t + c).collect();
+    // proof.sigmas.sigma_proof_g_1_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &inverse_needles, &vec_tensor_c);
+    // proof.sigmas.y_1 = linalg::inner_product(&inverse_needles, &tensor_evaluation_point);
 
-    // Fourth sigma: <f, tensor> = y_2
-    proof.sigmas.sigma_proof_f_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &needles, &tensor_evaluation_point);
-    proof.sigmas.y_2 =
-        linalg::inner_product(&needles, &tensor_evaluation_point);
+    // // Fourth sigma: <f, tensor> = y_2
+    // proof.sigmas.sigma_proof_f_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &needles, &tensor_evaluation_point);
+    // proof.sigmas.y_2 =
+    //     linalg::inner_product(&needles, &tensor_evaluation_point);
 
     proof
 }
