@@ -9,17 +9,18 @@ use transcript::IOPTranscript;
 
 use crate::pedersen;
 use crate::linalg;
+use crate::pedersen::CommitmentKey;
 
 /// Prove that <x, a> = y, where x is private
 pub fn sigma_linear_evaluation_prover<G: CurveGroup>(
     csrng: &mut (impl RngCore + CryptoRng),
     transcript: &mut IOPTranscript<G::ScalarField>,
-    ck: &[G::Affine],
+    ck: &CommitmentKey<G>,
 
     vec_x: &Vec<G::ScalarField>, // private
     vec_a: &Vec<G::ScalarField>, // public
 ) -> (G, Vec<G::ScalarField>) {
-        // Create the prover's blinders
+    // Create the prover's blinders
     let k_len = vec_x.len();
     let mut vec_k = (0..k_len)
         .map(|_| G::ScalarField::rand(csrng))
@@ -31,7 +32,7 @@ pub fn sigma_linear_evaluation_prover<G: CurveGroup>(
     assert_eq!(linalg::inner_product(&vec_k, &vec_a), G::ScalarField::zero());
 
     // Commit to the blinders and send the commitment to the verifier
-    let k_gg = G::msm_unchecked(&ck, &vec_k);
+    let k_gg = G::msm_unchecked(&ck.vec_G, &vec_k);
     transcript.append_serializable_element(b"k_gg", &[k_gg]).unwrap();
 
     // Get challenges from verifier
@@ -46,7 +47,7 @@ pub fn sigma_linear_evaluation_prover<G: CurveGroup>(
 /// Verify a proof that given commitment X, its opening x has: <x, a> = y
 pub fn sigma_linear_evaluation_verifier<G: CurveGroup>(
     transcript: &mut IOPTranscript<G::ScalarField>,
-    ck: &[G::Affine],
+    ck: &CommitmentKey<G>,
 
     x_gg: &G,
     vec_a: &Vec<G::ScalarField>,
@@ -62,7 +63,7 @@ pub fn sigma_linear_evaluation_verifier<G: CurveGroup>(
     let c = transcript.get_and_append_challenge(b"c").unwrap();
 
     // Check schnorr
-    let s_i_g_i = G::msm_unchecked(&ck, &vec_s);
+    let s_i_g_i = G::msm_unchecked(&ck.vec_G, &vec_s);
     assert_eq!(s_i_g_i - k_gg - x_gg.mul(c), G::zero());
 
     // Check linear relation
@@ -98,7 +99,7 @@ fn test_sigma_end_to_end() {
     let vec_x = (0..len)
         .map(|_| ark_curve25519::Fr::rand(rng))
         .collect::<Vec<_>>();
-    let x_gg = G::msm_unchecked(&ck, &vec_x);
+    let x_gg = G::msm_unchecked(&ck.vec_G, &vec_x);
 
     let y = linalg::inner_product(&vec_x, &vec_a);
 

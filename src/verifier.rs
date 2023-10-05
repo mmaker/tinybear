@@ -6,6 +6,7 @@ use transcript::IOPTranscript;
 use crate::linalg;
 use crate::linalg::{tensor};
 
+use crate::pedersen::CommitmentKey;
 use crate::{lookup, pedersen};
 use crate::sigma::sigma_linear_evaluation_verifier;
 use crate::prover::{prove, Proof};
@@ -18,7 +19,7 @@ type ProofResult = Result<(), InvalidProof>;
 #[allow(unused)] // XXX during dev
 pub fn verify<G>(
     transcript: &mut IOPTranscript<G::ScalarField>,
-    ck: &[G::Affine],
+    ck: &CommitmentKey<G>,
     k: [u8; 16],
     proof: &Proof<G>,
 ) -> ProofResult

@@ -5,7 +5,7 @@ use ark_serialize::CanonicalSerialize;
 
 use transcript::IOPTranscript;
 
-use crate::sigma::sigma_linear_evaluation_prover;
+use crate::{sigma::sigma_linear_evaluation_prover, pedersen::CommitmentKey};
 use super::{aes, linalg, lookup, pedersen, sumcheck};
 
 // XXX?
@@ -297,7 +297,7 @@ fn challenge_for_witness<F: Field>(vector: &[F], r_sbox: F, r: F, r_xor: F, r2_x
 
 pub fn prove<G>(
     transcript: &mut IOPTranscript<G::ScalarField>,
-    ck: &[G::Affine],
+    ck: &CommitmentKey<G>,
     message: [u8; 16],
     key: &[u8; 16],
 ) -> Proof<G>
