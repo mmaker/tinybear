@@ -1,22 +1,4 @@
-/// Here's roughly how the protocol works.
-///
-/// Prover:
-///  com(witness): G
-/// Verifier:
-///  r, r_sbox, r_xor, r2_xor, lookup_challenge: [F; 5]
-/// Prover:
-///  com(inverse_needles): G
-///  com(inverse_haystack): G
-///  com(freqs): G
-/// Verifier:
-///  batch_sumcheck_challenges: F
-/// Prover:
-///  sumcheck_claims: [F; 2]
-/// Prover and Verifier:
-///  sumcheck
-/// Prover:
-///  linear_evaluations: [F; 4]
-///  linear_evaluations_proofs
+/// See Figure 8 in the paper to learn how this protocol works
 use ark_ec::CurveGroup;
 use ark_ff::{Field, UniformRand, Zero};
 use ark_serialize::CanonicalSerialize;
@@ -399,7 +381,17 @@ where
     // Finally compute h and t
     let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_mcolpre, alpha);
 
-    //////////////////////////////// Sanity check ////////////////////////////////////////
+    ////////////////////////////// Sumcheck  //////////////////////////////
+
+   // Reduce scalar product <f,g> to a tensor product
+   let (sumcheck_challenges, sumcheck_messages) = sumcheck::sumcheck(transcript, &needles, &inverse_needles);
+    // pour sumcheck messages into the proof
+    proof.sumcheck_messages = sumcheck_messages;
+    // add inner product result to the proof: <f, g> = |f| - alpha * gamma
+    proof.sumcheck_claim_f_g = linalg::inner_product(&needles, &inverse_needles);
+
+    //////////////////////////////// Sanity checks ////////////////////////////////////////
+
     // Sanity check: check that the witness is indeed valid
     // sum_i g_i  = sum_i f_i
     assert_eq!(inverse_haystack.len(), frequencies_u8.len());
@@ -414,14 +406,9 @@ where
             .sum::<G::ScalarField>(),
         inverse_needles.iter().sum::<G::ScalarField>()
     );
-    ////////////////////////////// Moving towards sumcheck  //////////////////////////////
 
-   // Reduce scalar product <f,g> to a tensor product
-   let (sumcheck_challenges, sumcheck_messages) = sumcheck::sumcheck(transcript, &needles, &inverse_needles);
-    // pour sumcheck messages into the proof
-    proof.sumcheck_messages = sumcheck_messages;
-    // add the inner product results (sumcheck claims) to the proof as well
-    proof.sumcheck_claim_f_g = linalg::inner_product(&needles, &inverse_needles);
+    // check that: <f, g> = |f| - alpha * gamma
+    assert_eq!(proof.sumcheck_claim_f_g, G::ScalarField::from(needles.len() as i32) - alpha * proof.gamma);
 
     ////////////////////////////// Sigma protocol //////////////////////////////
 
