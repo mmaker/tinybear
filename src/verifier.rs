@@ -50,7 +50,12 @@ where
     // Verify sumcheck claim
     assert_eq!(proof.sumcheck_claim_f_g , G::ScalarField::from(proof.needles_len as i32) - alpha * proof.gamma);
 
+    // Verify sumcheck tensorcheck claim (random evaluation)
+    // using yet unverified y_1 and y_2
+    assert_eq!(tensorcheck_claim, proof.sigmas.y_1 * proof.sigmas.y_2);
+
     // Step 6: Linear evaluations
+    // time to verify that g, m and gamma are correctly provided by the prover
 
     // Verify first sigma: <m, h> = gamma
     sigma_linear_evaluation_verifier(transcript, &ck, &proof.freqs_com, &inverse_haystack, &proof.gamma,
