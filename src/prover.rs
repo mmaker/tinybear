@@ -1,16 +1,15 @@
 #![allow(non_snake_case)]
-use std::ops::Mul;
 
 /// See Figure 8 in the paper to learn how this protocol works
 use ark_ec::CurveGroup;
-use ark_ff::{Field, UniformRand, One};
+use ark_ff::Field;
 use ark_serialize::CanonicalSerialize;
 
 use transcript::IOPTranscript;
 
-use crate::{sigma::sigma_linear_evaluation_prover, pedersen::CommitmentKey};
-use crate::sigma::SigmaProof;
 use super::{aes, linalg, lookup, pedersen, sumcheck};
+use crate::sigma::SigmaProof;
+use crate::{pedersen::CommitmentKey, sigma::sigma_linear_evaluation_prover};
 
 // XXX?
 // const WITNESS_LEN: usize = 1760;
@@ -80,8 +79,8 @@ pub struct TinybearProof<G: CurveGroup> {
     pub freqs_com: G, // com(m)
 
     pub inverse_needles_com: G, // com(g)
-    pub needles_len: usize, // |f|
-    pub Y: G, // com(y)
+    pub needles_len: usize,     // |f|
+    pub Y: G,                   // com(y)
 
     // we actually know the len of this thing,
     // it's going to be 12 for aes128 with 4-bit xor
@@ -299,7 +298,6 @@ fn challenge_for_witness<F: Field>(vector: &[F], r_sbox: F, r: F, r_xor: F, r2_x
     current_row
 }
 
-
 /// Compute needles and frequencies
 /// Return (needles, frequencies, frequencies_u8)
 pub fn compute_needles_and_frequencies<F: Field>(
@@ -307,7 +305,7 @@ pub fn compute_needles_and_frequencies<F: Field>(
     r_xor: F,
     r2_xor: F,
     r_sbox: F,
-    r_mcolpre: F,
+    r_mul: F,
 ) -> (Vec<F>, Vec<F>, Vec<u8>) {
     // Generate the witness.
     // witness_s_box = [(a, sbox(a)), (b, sbox(b)), ...]
@@ -323,7 +321,7 @@ pub fn compute_needles_and_frequencies<F: Field>(
 
     // s_box_needles = [x_1 + r * sbox[x_1], x_2 + r * sbox[x_2], ...]
     let s_box_needles = lookup::compute_u8_needles(&witness_s_box, r_sbox);
-    let m_col_pre_needles = lookup::compute_u8_needles(&witness_m_col_pre, r_mcolpre);
+    let m_col_pre_needles = lookup::compute_u8_needles(&witness_m_col_pre, r_mul);
 
     // ASN xor_needles = ??? 4 bit stuff
     let xor_needles = lookup::compute_u16_needles(&witness_xor, [r_xor, r2_xor]);
@@ -349,7 +347,6 @@ pub fn compute_needles_and_frequencies<F: Field>(
     (needles, frequencies, frequencies_u8)
 }
 
-
 pub fn prove<G>(
     transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &CommitmentKey<G>,
@@ -369,35 +366,39 @@ where
     // commit to trace of the program.
     // TIME: ~3-4ms [outdated]
     let witness_vector = vectorize_witness(&witness);
-    proof.witness_com = pedersen::commit_u8(&ck, &witness_vector);
-    transcript.append_serializable_element(b"witness_com", &[proof.witness_com]).unwrap();
+    let (witness_com, omega) = pedersen::commit_hiding_u8(rng, &ck, &witness_vector);
+
+    // Send W
+    proof.witness_com = witness_com;
+    transcript
+        .append_serializable_element(b"witness_com", &[proof.witness_com])
+        .unwrap();
 
     //////////////////////////// Lookup protocol //////////////////////////////
 
     // Get challenges for the lookup protocol.
     // one for sbox + mxcolhelp, sbox, two for xor
-    let r_mcolpre = transcript.get_and_append_challenge(b"r_mcolpre").unwrap();
+    let r_mul = transcript.get_and_append_challenge(b"r_mul").unwrap();
     let r_sbox = transcript.get_and_append_challenge(b"r_sbox").unwrap();
     let r_xor = transcript.get_and_append_challenge(b"r_xor").unwrap();
     let r2_xor = transcript.get_and_append_challenge(b"r2_xor").unwrap();
 
-    let (needles, frequencies, frequencies_u8) = compute_needles_and_frequencies(&witness, r_xor, r2_xor, r_sbox, r_mcolpre);
+    let (needles, frequencies, frequencies_u8) =
+        compute_needles_and_frequencies(&witness, r_xor, r2_xor, r_sbox, r_mul);
 
     // Commit to m (using mu as the blinder) and send it over
-    let mu = G::ScalarField::rand(rng);
-    let freqs_com = pedersen::commit_u8(ck, &frequencies_u8) + ck.H.mul(mu);
+    let (freqs_com, mu) = pedersen::commit_hiding_u8(rng, ck, &frequencies_u8);
 
     // Send M
     proof.freqs_com = freqs_com;
-    transcript.append_serializable_element(b"m", &[proof.freqs_com]).unwrap();
+    transcript
+        .append_serializable_element(b"m", &[proof.freqs_com])
+        .unwrap();
 
     // Get the lookup challenge c and compute q and y
     let c = transcript.get_and_append_challenge(b"c").unwrap();
     // Compute vector of inverse_needles[i] = 1 / (needles[i] + a) = q
-    let mut inverse_needles = needles
-        .iter()
-        .map(|k| c + k)
-        .collect::<Vec<_>>();
+    let mut inverse_needles = needles.iter().map(|k| c + k).collect::<Vec<_>>();
     ark_ff::batch_inversion(&mut inverse_needles);
 
     // Q = Com(q)
@@ -410,21 +411,26 @@ where
     proof.inverse_needles_com = inverse_needles_com;
     proof.Y = Y;
     proof.needles_len = needles.len();
-    transcript.append_serializable_element(b"Q", &[proof.inverse_needles_com]).unwrap();
-    transcript.append_serializable_element(b"Y", &[proof.Y]).unwrap();
+    transcript
+        .append_serializable_element(b"Q", &[proof.inverse_needles_com])
+        .unwrap();
+    transcript
+        .append_serializable_element(b"Y", &[proof.Y])
+        .unwrap();
 
     // Finally compute h and t
-    let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_mcolpre, c);
+    let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_mul, c);
 
     ////////////////////////////// Sumcheck  //////////////////////////////
 
-   // Reduce scalar product <f,g> to a tensor product
-   let (sumcheck_challenges, sumcheck_messages) = sumcheck::sumcheck(transcript, &needles, &inverse_needles);
+    // Reduce scalar product <f,g> to a tensor product
+    let (sumcheck_challenges, sumcheck_messages) =
+        sumcheck::sumcheck(transcript, &needles, &inverse_needles);
 
     // pour sumcheck messages into the proof
     proof.sumcheck_messages = sumcheck_messages;
-    // add inner product result to the proof: <f, g> = s = |f| - c * y
-    proof.sumcheck_claim_s = linalg::inner_product(&needles, &inverse_needles);
+    // add inner product result to the proof: <f, q> = s = |f| - c * y
+    proof.sumcheck_claim_s = G::ScalarField::from(needles.len() as i32) - c * y;
 
     //////////////////////////////// Sanity checks ////////////////////////////////////////
 
@@ -444,20 +450,29 @@ where
     );
 
     // check that: <q, f> = |f| - c * y
-    assert_eq!(proof.sumcheck_claim_s, G::ScalarField::from(needles.len() as i32) - c * y);
+    assert_eq!(
+        proof.sumcheck_claim_s,
+        G::ScalarField::from(needles.len() as i32) - c * y
+    );
 
     // check other linear evaluation scalar products
     // <m, h> == y
     assert_eq!(linalg::inner_product(&frequencies, &inverse_haystack), y);
     // <g, 1> == y
-    let vec_ones = vec![G::ScalarField::one(); inverse_needles.len()];
-    assert_eq!(linalg::inner_product(&inverse_needles, &vec_ones), y);
+    assert_eq!(inverse_needles.iter().sum::<G::ScalarField>(), y);
 
     ////////////////////////////// Sigma protocols //////////////////////////////
 
-
     ////////////////////// First sigma: <m, h> = y ////////////////////
-    proof.sigmas.sigma_proof_m_h = sigma_linear_evaluation_prover(rng, transcript, ck, &frequencies, mu, psi, &inverse_haystack);
+    proof.sigmas.sigma_proof_m_h = sigma_linear_evaluation_prover(
+        rng,
+        transcript,
+        ck,
+        &frequencies,
+        mu,
+        psi,
+        &inverse_haystack,
+    );
 
     ////////////////////// Second (merged) sigma: <g, tensor + z> = y_1 + z * y ////////////////////
 
@@ -469,7 +484,8 @@ where
     let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
 
     let z = transcript.get_and_append_challenge(b"bc").unwrap();
-    let vec_tensor_z: Vec<G::ScalarField> = tensor_evaluation_point.iter().map(|t| *t + z).collect();
+    let vec_tensor_z: Vec<G::ScalarField> =
+        tensor_evaluation_point.iter().map(|t| *t + z).collect();
 
     // Compute partial result and commit to it
     let y_1 = linalg::inner_product(&inverse_needles, &tensor_evaluation_point);
@@ -479,7 +495,15 @@ where
     let Y_1_z_Y_blinder = epsilon + z * psi;
 
     // Finally compute the sigma proof
-    proof.sigmas.sigma_proof_q_1_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &inverse_needles, theta, Y_1_z_Y_blinder, &vec_tensor_z);
+    proof.sigmas.sigma_proof_q_1_tensor = sigma_linear_evaluation_prover(
+        rng,
+        transcript,
+        ck,
+        &inverse_needles,
+        theta,
+        Y_1_z_Y_blinder,
+        &vec_tensor_z,
+    );
     proof.sigmas.Y_1 = Y_1;
 
     ////////////////////// Final sigma: <f, tensor> = y_2 ////////////////////
@@ -487,7 +511,15 @@ where
     let y_2 = linalg::inner_product(&needles, &tensor_evaluation_point);
     let (Y_2, _iota) = pedersen::commit_hiding(rng, &ck, &[y_2]);
     // XXX need to figure out what blinder to put for needles below instead of theta
-    proof.sigmas.sigma_proof_f_tensor = sigma_linear_evaluation_prover(rng, transcript, ck, &needles, theta, epsilon, &tensor_evaluation_point);
+    proof.sigmas.sigma_proof_f_tensor = sigma_linear_evaluation_prover(
+        rng,
+        transcript,
+        ck,
+        &needles,
+        theta,
+        epsilon,
+        &tensor_evaluation_point,
+    );
     proof.sigmas.Y_2 = Y_2;
 
     proof

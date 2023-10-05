@@ -1,15 +1,15 @@
 #![allow(non_snake_case)]
-use ark_std::UniformRand;
-use ark_serialize::CanonicalSerialize;
-use std::ops::Mul;
 use ark_ec::CurveGroup;
-use rand::RngCore;
+use ark_serialize::CanonicalSerialize;
+use ark_std::UniformRand;
 use rand::CryptoRng;
+use rand::RngCore;
+use std::ops::Mul;
 use transcript::IOPTranscript;
 
 use crate::linalg;
-use crate::pedersen::CommitmentKey;
 use crate::pedersen::commit_hiding;
+use crate::pedersen::CommitmentKey;
 
 #[derive(Default, CanonicalSerialize)]
 pub struct SigmaProof<G: CurveGroup> {
@@ -44,7 +44,9 @@ pub fn sigma_linear_evaluation_prover<G: CurveGroup>(
 
     let (K_2, kappa_2) = commit_hiding(csrng, &ck, &[linalg::inner_product(&vec_k, &vec_a)]);
 
-    transcript.append_serializable_element(b"k_gg", &[K_1, K_2]).unwrap();
+    transcript
+        .append_serializable_element(b"k_gg", &[K_1, K_2])
+        .unwrap();
 
     // Get challenges from verifier
     let c = transcript.get_and_append_challenge(b"c").unwrap();
@@ -54,15 +56,19 @@ pub fn sigma_linear_evaluation_prover<G: CurveGroup>(
     let zeta_1 = kappa_1 + c * phi;
     let zeta_2 = kappa_2 + c * psi;
 
-    transcript.append_serializable_element(b"response", &[vec_z.clone()]).unwrap();
-    transcript.append_serializable_element(b"response2", &[zeta_1, zeta_2]).unwrap();
+    transcript
+        .append_serializable_element(b"response", &[vec_z.clone()])
+        .unwrap();
+    transcript
+        .append_serializable_element(b"response2", &[zeta_1, zeta_2])
+        .unwrap();
 
     SigmaProof {
         K_1: K_1.into(),
         K_2: K_2.into(),
         vec_z,
         zeta_1,
-        zeta_2
+        zeta_2,
     }
 }
 
@@ -75,23 +81,35 @@ pub fn sigma_linear_evaluation_verifier<G: CurveGroup>(
     X: &G,
     Y: &G,
 
-    proof: &SigmaProof<G>
+    proof: &SigmaProof<G>,
 ) -> bool {
-    transcript.append_serializable_element(b"k_gg", &[proof.K_1, proof.K_2]).unwrap();
+    transcript
+        .append_serializable_element(b"k_gg", &[proof.K_1, proof.K_2])
+        .unwrap();
 
     // Get challenges from verifier
     let c = transcript.get_and_append_challenge(b"c").unwrap();
 
     // Check (1)
     let z_i_G_i = G::msm_unchecked(&ck.vec_G, &proof.vec_z);
-    assert_eq!(z_i_G_i + ck.H.mul(proof.zeta_1) - proof.K_1 - X.mul(c), G::zero());
+    assert_eq!(
+        z_i_G_i + ck.H.mul(proof.zeta_1) - proof.K_1 - X.mul(c),
+        G::zero()
+    );
 
     // Check (2)
     let z_i_a_i_G_i = ck.vec_G[0].mul(&linalg::inner_product(&proof.vec_z, &vec_a));
-    assert_eq!(z_i_a_i_G_i + ck.H.mul(proof.zeta_2) - proof.K_2 - Y.mul(c), G::zero());
+    assert_eq!(
+        z_i_a_i_G_i + ck.H.mul(proof.zeta_2) - proof.K_2 - Y.mul(c),
+        G::zero()
+    );
 
-    transcript.append_serializable_element(b"response", &[proof.vec_z.clone()]).unwrap();
-    transcript.append_serializable_element(b"response2", &[proof.zeta_1, proof.zeta_2]).unwrap();
+    transcript
+        .append_serializable_element(b"response", &[proof.vec_z.clone()])
+        .unwrap();
+    transcript
+        .append_serializable_element(b"response2", &[proof.zeta_1, proof.zeta_2])
+        .unwrap();
 
     // XXX
     true
@@ -131,7 +149,8 @@ fn test_sigma_end_to_end() {
     let (Y, psi) = commit_hiding(rng, &ck, &[y]);
 
     // Let's prove!
-    let sigma_proof = sigma_linear_evaluation_prover(rng, &mut transcript_p, &ck, &vec_x, phi, psi, &vec_a);
+    let sigma_proof =
+        sigma_linear_evaluation_prover(rng, &mut transcript_p, &ck, &vec_x, phi, psi, &vec_a);
 
     sigma_linear_evaluation_verifier(&mut transcript_v, &ck, &vec_a, &X, &Y, &sigma_proof);
 }

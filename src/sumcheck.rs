@@ -1,4 +1,3 @@
-
 use ark_ff::PrimeField;
 use transcript::IOPTranscript;
 
@@ -38,7 +37,9 @@ pub fn reduce<F: PrimeField>(
     // reduce to a subclaim using the prover's messages.
     for &[a, b] in messages {
         // compute the next challenge from the previous coefficients.
-        transcript.append_serializable_element(b"ab", &[a, b]).unwrap();
+        transcript
+            .append_serializable_element(b"ab", &[a, b])
+            .unwrap();
         let r = transcript.get_and_append_challenge(b"r").unwrap();
 
         challenges.push(r);
@@ -55,7 +56,7 @@ pub fn reduce<F: PrimeField>(
 pub fn sumcheck<F: PrimeField>(
     transcript: &mut IOPTranscript<F>,
     v: &[F],
-    w: &[F]
+    w: &[F],
 ) -> (Vec<F>, Vec<[F; 2]>) {
     let mut msgs = Vec::new();
     let mut chals = Vec::new();

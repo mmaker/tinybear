@@ -6,7 +6,10 @@ use crate::aes::{self};
 ///
 /// This function increases counters in the `dst` array for each occurrence of the 4-bit slices of `x` and `y` found in
 /// the witness.
-pub fn count_u16_frequencies<'a>(dst: &mut [u8], witness: impl IntoIterator<Item = &'a (u8, u8, u8)>) {
+pub fn count_u16_frequencies<'a>(
+    dst: &mut [u8],
+    witness: impl IntoIterator<Item = &'a (u8, u8, u8)>,
+) {
     for &(x, y, _z) in witness {
         let i_lo = (x & 0xf) | ((y & 0xf) << 4);
         let i_hi = (x >> 4) | (y & 0xf0);
@@ -14,7 +17,6 @@ pub fn count_u16_frequencies<'a>(dst: &mut [u8], witness: impl IntoIterator<Item
         dst[i_hi as usize] += 1;
     }
 }
-
 
 /// Counts the occurrences of 8-bit values in the given witness.
 ///
@@ -28,13 +30,15 @@ pub fn count_u8_frequencies<'a>(dst: &mut [u8], witness: impl IntoIterator<Item 
 /// For each (x, y) tuple in the witness, compute a needle out of it using a random linear combination.
 ///
 /// Given (x, y), compute `x + r * y`.
-pub fn compute_u8_needles<'a, F: Field>(witness: impl IntoIterator<Item = &'a (u8, u8)>, r: F) -> Vec<F> {
+pub fn compute_u8_needles<'a, F: Field>(
+    witness: impl IntoIterator<Item = &'a (u8, u8)>,
+    r: F,
+) -> Vec<F> {
     witness
         .into_iter()
         .map(|&(x, y)| F::from(x) + r * F::from(y))
         .collect()
 }
-
 
 /// Computes "needles" for each tuple `(x, y, z)` from the witness by computing random linear combinations for both the
 /// low-order and high-order 4-bits of each byte in the tuple.
@@ -69,14 +73,13 @@ pub fn compute_u16_needles<'a, F: Field>(
         .collect()
 }
 
-
 /// Compute the haystack table t
 pub fn compute_haystack<F: Field>(
     r_xor: F,
     r2_xor: F,
     r_sbox: F,
-    r_mcolpre: F,
-    lookup_challenge: F
+    r_mul: F,
+    lookup_challenge: F,
 ) -> (Vec<F>, Vec<F>) {
     // Start computing vector of inverse_haystack
     // First we need to iterate over all the possibilities for each operation
@@ -85,9 +88,7 @@ pub fn compute_haystack<F: Field>(
             let x = i & 0xf;
             let y = i >> 4;
             let z = x ^ y;
-            F::from(x)
-                + r_xor * F::from(y)
-                + r2_xor * F::from(z)
+            F::from(x) + r_xor * F::from(y) + r2_xor * F::from(z)
         })
         .collect::<Vec<_>>();
     let haystack_s_box = (0u8..=255)
@@ -101,7 +102,7 @@ pub fn compute_haystack<F: Field>(
         .map(|i| {
             let x = i;
             let y = aes::M_COL_HELP[x as usize];
-            F::from(x) + r_mcolpre * F::from(y)
+            F::from(x) + r_mul * F::from(y)
         })
         .collect::<Vec<_>>();
 

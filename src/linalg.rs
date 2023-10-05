@@ -9,10 +9,6 @@ pub fn inner_product<F: Copy + ops::Mul<Output = F> + iter::Sum>(xs: &[F], ys: &
     xs.iter().zip(ys).map(|(&x, &y)| x * y).sum()
 }
 
-pub fn inner_product_u8<F: Field>(xs: &[u8], ys: &[F]) -> F {
-    xs.iter().zip(ys).map(|(&x, &y)| F::from(x) * y).sum()
-}
-
 /// Given as input `elements`, an array of field elements
 /// \\(\rho_0, \dots, \rho_{n-1}\\)
 /// compute the tensor product

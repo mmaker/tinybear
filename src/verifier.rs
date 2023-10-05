@@ -3,14 +3,14 @@ use ark_ec::CurveGroup;
 
 use transcript::IOPTranscript;
 
-use crate::{linalg};
+use crate::linalg;
 
+use crate::lookup;
 use crate::pedersen::CommitmentKey;
-use crate::{lookup};
+use crate::prover::TinybearProof;
 use crate::sigma::sigma_linear_evaluation_verifier;
-use crate::prover::{TinybearProof};
 
-use super::{sumcheck};
+use super::sumcheck;
 
 pub struct InvalidProof;
 type ProofResult = Result<(), InvalidProof>;
@@ -26,22 +26,30 @@ where
     G: CurveGroup,
 {
     // Step 2: Lookup verifier challenges
-    transcript.append_serializable_element(b"witness_com", &[proof.witness_com]).unwrap();
+    transcript
+        .append_serializable_element(b"witness_com", &[proof.witness_com])
+        .unwrap();
 
-    let r_mcolpre = transcript.get_and_append_challenge(b"r_mcolpre").unwrap();
+    let r_mul = transcript.get_and_append_challenge(b"r_mul").unwrap();
     let r_sbox = transcript.get_and_append_challenge(b"r_sbox").unwrap();
     let r_xor = transcript.get_and_append_challenge(b"r_xor").unwrap();
     let r2_xor = transcript.get_and_append_challenge(b"r2_xor").unwrap();
 
-    transcript.append_serializable_element(b"m", &[proof.freqs_com,]).unwrap();
+    transcript
+        .append_serializable_element(b"m", &[proof.freqs_com])
+        .unwrap();
 
     let c = transcript.get_and_append_challenge(b"c").unwrap();
 
-    transcript.append_serializable_element(b"Q", &[proof.inverse_needles_com]).unwrap();
-    transcript.append_serializable_element(b"Y", &[proof.Y]).unwrap();
+    transcript
+        .append_serializable_element(b"Q", &[proof.inverse_needles_com])
+        .unwrap();
+    transcript
+        .append_serializable_element(b"Y", &[proof.Y])
+        .unwrap();
 
     // Compute h and t
-    let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_mcolpre, c);
+    let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_mul, c);
 
     // Step 5: Sumcheck
     let (sumcheck_challenges, tensorcheck_claim) =
@@ -60,28 +68,39 @@ where
     // time to verify that g, m and y are correctly provided by the prover
 
     // // Verify first sigma: <m, h> = y
-    sigma_linear_evaluation_verifier(transcript, &ck, &inverse_haystack, &proof.freqs_com, &proof.Y,
-                                     &proof.sigmas.sigma_proof_m_h);
-
+    sigma_linear_evaluation_verifier(
+        transcript,
+        &ck,
+        &inverse_haystack,
+        &proof.freqs_com,
+        &proof.Y,
+        &proof.sigmas.sigma_proof_m_h,
+    );
 
     // Verify merged scalar product: <g, tensor + z> = y_1 + z * y
 
     let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
 
     let z = transcript.get_and_append_challenge(b"bc").unwrap();
-    let vec_tensor_z: Vec<G::ScalarField> = tensor_evaluation_point.iter().map(|t| *t + z).collect();
+    let vec_tensor_z: Vec<G::ScalarField> =
+        tensor_evaluation_point.iter().map(|t| *t + z).collect();
     let Y_1_z_Y = proof.sigmas.Y_1 + proof.Y.mul(z);
-    sigma_linear_evaluation_verifier(transcript, &ck, &vec_tensor_z, &proof.inverse_needles_com, &Y_1_z_Y,
-                                     &proof.sigmas.sigma_proof_q_1_tensor);
+    sigma_linear_evaluation_verifier(
+        transcript,
+        &ck,
+        &vec_tensor_z,
+        &proof.inverse_needles_com,
+        &Y_1_z_Y,
+        &proof.sigmas.sigma_proof_q_1_tensor,
+    );
 
     // Verify fourth sigma: <h, tensor> = y
     // XXX
     // let morphism = tensor(&sumcheck_challenges);
-    // let morphism_witness = challenge_for_witness(&morphism, r_sbox, r_mcolpre, r_xor, r2_xor);
+    // let morphism_witness = challenge_for_witness(&morphism, r_sbox, r_mul, r_xor, r2_xor);
 
     Err(InvalidProof)
 }
-
 
 #[test]
 fn test_end_to_end() {
@@ -95,7 +114,6 @@ fn test_end_to_end() {
 
     let mut transcript_v = IOPTranscript::<ark_curve25519::Fr>::new(b"aes");
     transcript_v.append_message(b"init", b"init").unwrap();
-
 
     let message = [
         0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69, 0x0C,
@@ -111,4 +129,3 @@ fn test_end_to_end() {
 
     let _ = verify::<G>(&mut transcript_v, &ck, key, &proof);
 }
-

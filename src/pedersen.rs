@@ -23,7 +23,11 @@ pub fn commit<G: CurveGroup>(ck: &CommitmentKey<G>, scalars: &[G::ScalarField]) 
 }
 
 /// Commit to `scalars`. Return commitment and blinder.
-pub fn commit_hiding<G: CurveGroup>(csrng: &mut (impl RngCore + CryptoRng), ck: &CommitmentKey<G>, scalars: &[G::ScalarField]) -> (G, G::ScalarField) {
+pub fn commit_hiding<G: CurveGroup>(
+    csrng: &mut (impl RngCore + CryptoRng),
+    ck: &CommitmentKey<G>,
+    scalars: &[G::ScalarField],
+) -> (G, G::ScalarField) {
     let blinder = G::ScalarField::rand(csrng);
     let C = G::msm_unchecked(&ck.vec_G, &scalars) + ck.H.mul(blinder);
     (C, blinder)
@@ -31,4 +35,14 @@ pub fn commit_hiding<G: CurveGroup>(csrng: &mut (impl RngCore + CryptoRng), ck: 
 
 pub fn commit_u8<G: CurveGroup>(ck: &CommitmentKey<G>, u8scalars: &[u8]) -> G {
     u8msm::u8msm(&ck.vec_G, u8scalars)
+}
+
+pub fn commit_hiding_u8<G: CurveGroup>(
+    csrng: &mut (impl RngCore + CryptoRng),
+    ck: &CommitmentKey<G>,
+    u8scalars: &[u8],
+) -> (G, G::ScalarField) {
+    let blinder = G::ScalarField::rand(csrng);
+    let C = u8msm::u8msm::<G>(&ck.vec_G, u8scalars) + ck.H.mul(blinder);
+    (C, blinder)
 }
