@@ -47,8 +47,10 @@ where
     let (sumcheck_challenges, tensorcheck_claim) =
         sumcheck::reduce(transcript, &proof.sumcheck_messages, proof.sumcheck_claim_f_g);
 
-    // Step 6: Linear evaluations
+    // Verify sumcheck claim
+    assert_eq!(proof.sumcheck_claim_f_g , G::ScalarField::from(proof.needles_len as i32) - alpha * proof.gamma);
 
+    // Step 6: Linear evaluations
 
     // Verify first sigma: <m, h> = gamma
     sigma_linear_evaluation_verifier(transcript, &ck, &proof.freqs_com, &inverse_haystack, &proof.gamma,
@@ -64,7 +66,7 @@ where
     sigma_linear_evaluation_verifier(transcript, &ck, &proof.inverse_needles_com, &tensor_evaluation_point, &proof.sigmas.y_1,
                                      proof.sigmas.sigma_proof_g_tensor.0, &proof.sigmas.sigma_proof_g_tensor.1);
 
-    // Verify fourth sigmas: <h, tensor> = gamma
+    // Verify fourth sigma: <h, tensor> = gamma
     // XXX
     // let morphism = tensor(&sumcheck_challenges);
     // let morphism_witness = challenge_for_witness(&morphism, r_sbox, r_mcolpre, r_xor, r2_xor);

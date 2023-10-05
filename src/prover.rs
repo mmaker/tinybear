@@ -72,9 +72,13 @@ pub struct LinearEvaluationProofs<G: CurveGroup> {
 #[derive(Default, CanonicalSerialize)]
 pub struct Proof<G: CurveGroup> {
     pub witness_com: G,
+
     // we actually know the len of the items below, it's LOOKUP_CHUNKS
     pub freqs_com: G, // com(m)
+
     pub inverse_needles_com: G, // com(g)
+    pub needles_len: usize, // |f|
+
     pub gamma: G::ScalarField, // gamma = <g,1>
 
     // we actually know the len of this thing,
@@ -378,6 +382,7 @@ where
     proof.inverse_needles_com = pedersen::commit(&ck, &inverse_needles);
     // gamma = <g,1>
     proof.gamma = inverse_needles.iter().sum();
+    proof.needles_len = needles.len();
 
     transcript.append_serializable_element(b"g", &[proof.inverse_needles_com]).unwrap();
     transcript.append_serializable_element(b"gamma", &[proof.gamma]).unwrap();
