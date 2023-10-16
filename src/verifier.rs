@@ -8,7 +8,7 @@ use crate::linalg;
 use crate::lookup;
 use crate::pedersen::CommitmentKey;
 use crate::prover::TinybearProof;
-use crate::sigma::sigma_linear_evaluation_verifier;
+use crate::sigma::lineval_verifier;
 
 use super::sumcheck;
 
@@ -68,13 +68,13 @@ where
     // time to verify that g, m and y are correctly provided by the prover
 
     // // Verify first sigma: <m, h> = y
-    sigma_linear_evaluation_verifier(
+    lineval_verifier(
         transcript,
         &ck,
         &inverse_haystack,
         &proof.freqs_com,
         &proof.Y,
-        &proof.sigmas.sigma_proof_m_h,
+        &proof.sigmas.proof_m_h,
     );
 
     // Verify merged scalar product: <g, tensor + z> = y_1 + z * y
@@ -85,13 +85,13 @@ where
     let vec_tensor_z: Vec<G::ScalarField> =
         tensor_evaluation_point.iter().map(|t| *t + z).collect();
     let Y_1_z_Y = proof.sigmas.Y_1 + proof.Y.mul(z);
-    sigma_linear_evaluation_verifier(
+    lineval_verifier(
         transcript,
         &ck,
         &vec_tensor_z,
         &proof.inverse_needles_com,
         &Y_1_z_Y,
-        &proof.sigmas.sigma_proof_q_1_tensor,
+        &proof.sigmas.proof_q_1_tensor,
     );
 
     // Verify fourth sigma: <h, tensor> = y

@@ -7,61 +7,22 @@ use ark_serialize::CanonicalSerialize;
 
 use transcript::IOPTranscript;
 
-use super::{aes, linalg, lookup, pedersen, sumcheck};
+use super::{aes, helper, linalg, lookup, pedersen, sigma, sumcheck};
 use crate::sigma::SigmaProof;
-use crate::{pedersen::CommitmentKey, sigma::sigma_linear_evaluation_prover};
+use crate::{pedersen::CommitmentKey};
 
-// XXX?
-// const WITNESS_LEN: usize = 1760;
 
-#[derive(Default)]
-struct AesWitnessRegions {
-    start: usize,
-    s_box: usize,
-    // final_s_box: usize,
-    m_col_xor: [usize; 5],
-}
 
-// The witness is structured as follows:
-// .start is the state at each intermediate round, so
-//   pos = 0
-//   len = 16 * 9 = 144
-// .s_box is the state after the sbox, so
-//   pos = 16 * 9 = 144
-//   len = 16 * 9 = 144
-// .m_col_xor[i] is the state after the m_col_xor[i], so
-//   pos = .start.len +
-const OFFSETS: AesWitnessRegions = {
-    let start = 0;
-    let s_box = start + 2 * (16 * 9 + 16);
-    // let final_s_box = s_box + 2 * 16;
-    // thank Rust for const for loops
-    let m_col_offset = s_box + 2 * (16 * 9);
-    let m_col_len = 2 * (16 * 9);
-    let m_col_xor = [
-        m_col_offset + m_col_len * 0,
-        m_col_offset + m_col_len * 1,
-        m_col_offset + m_col_len * 2,
-        m_col_offset + m_col_len * 3,
-        m_col_offset + m_col_len * 4,
-    ];
 
-    AesWitnessRegions {
-        start,
-        s_box,
-        // final_s_box,
-        m_col_xor,
-    }
-};
 
 // A summary of the evaluations and proofs required in the protocol.
 #[derive(Default, CanonicalSerialize)]
 pub struct LinearEvaluationProofs<G: CurveGroup> {
     // Proof for <m, h> = y
-    pub sigma_proof_m_h: SigmaProof<G>,
+    pub proof_m_h: SigmaProof<G>,
 
     // Proof and partial result for merged scalar product: <g, tensor + c> = y_1 + c * y
-    pub sigma_proof_q_1_tensor: SigmaProof<G>,
+    pub proof_q_1_tensor: SigmaProof<G>,
     // com(y_1)
     pub Y_1: G,
 
@@ -92,50 +53,6 @@ pub struct TinybearProof<G: CurveGroup> {
 
     // Proofs and results for the linear evaluation proofs
     pub sigmas: LinearEvaluationProofs<G>,
-}
-
-/// Transforms an AES witness into a flattened vector representation.
-///
-/// This function takes an AES witness, which captures the execution trace of AES encryption, and turns it into a
-/// continuous vector of 4-bit chunks.  Each 8-bit byte from the witness is split into two 4-bit parts to simplify
-/// the lookup operations.
-fn vectorize_witness(witness: &aes::Witness) -> Vec<u8> {
-    let mut w = Vec::new();
-
-    assert_eq!(OFFSETS.start, w.len());
-    w.extend(witness.start.iter().map(|x| [x & 0xf, x >> 4]).flatten());
-
-    assert_eq!(OFFSETS.s_box, w.len());
-    w.extend(witness.s_box.iter().map(|x| [x & 0xf, x >> 4]).flatten());
-
-    // assert_eq!(OFFSETS.final_s_box, w.len());
-    // w.extend(
-    //     witness
-    //         .final_s_box
-    //         .iter()
-    //         .map(|x| [x & 0xf, x >> 4])
-    //         .flatten(),
-    // );
-
-    for i in 0..5 {
-        assert_eq!(OFFSETS.m_col_xor[i], w.len());
-        w.extend(
-            witness.m_col_xor[i]
-                .iter()
-                .map(|x| [x & 0xf, x >> 4])
-                .flatten(),
-        );
-    }
-
-    // w.extend(
-    //     witness
-    //         .final_s_box
-    //         .iter()
-    //         .map(|x| [x & 0xf, x >> 4])
-    //         .flatten(),
-    // );
-
-    w
 }
 
 fn get_m_col_pre_witness(witness: &aes::Witness) -> Vec<(u8, u8)> {
@@ -199,104 +116,6 @@ fn get_xor_witness(witness: &aes::Witness) -> Vec<(u8, u8, u8)> {
     witness_xor
 }
 
-/// DOCDOC
-/// Used by sigma protocol verifier in order to construct the right evaluation given the shiftrow permutation
-fn challenge_for_witness<F: Field>(vector: &[F], r_sbox: F, r: F, r_xor: F, r2_xor: F) -> Vec<F> {
-    // the final matrix that maps witness -> needles
-    // has dimensions: needles.len() x witness.len()
-    // where
-    // needles.len() = 1472
-    //   s_box_needles.len() (9 * 16) +
-    //   m_col_pre.len() (9 * 16) +
-    //   xor_needles.len() (16 * 9 * 5 * 2)
-    // witness.len() =
-    //   start.len() (9 * 16 * 2)
-    //   s_box.len() (9 * 16 * 2)
-    //   m_col_pre.len() (9 * 16 * 5 * 2)
-    const WITNESS_LEN: usize = 2016 + 144;
-
-    let mut current_row = vec![F::zero(); WITNESS_LEN];
-    let identity = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-    let s_row = aes::shiftrows(identity);
-    let mut aux_m_col = [identity; 4];
-    aes::rotate_right_inplace(&mut aux_m_col[0], 1);
-    aes::rotate_right_inplace(&mut aux_m_col[1], 2);
-    aes::rotate_right_inplace(&mut aux_m_col[2], 3);
-    aes::rotate_right_inplace(&mut aux_m_col[3], 3);
-
-    let mut offset = 0;
-    // sbox
-    for round in 0..9 {
-        for i in 0..16 {
-            let s_row_pos = 16 * round + s_row[i] as usize;
-            let s_box_pos = 16 * round + i;
-            //
-            let c_lo = vector[round * 16 + i];
-            let c_hi = c_lo.double().double().double().double();
-            current_row[s_row_pos * 2] += c_lo;
-            current_row[s_row_pos * 2 + 1] += c_hi;
-            current_row[OFFSETS.s_box + s_box_pos * 2] += r_sbox * c_lo;
-            current_row[OFFSETS.s_box + s_box_pos * 2 + 1] += r_sbox * c_hi;
-        }
-    }
-
-    offset += 16 * 9;
-    // add mxcolpre
-    for round in 0..9 {
-        for i in 0..16 {
-            let pos = 16 * round + i;
-            //
-            let c_lo = vector[offset + pos];
-            let c_hi = c_lo.double().double().double().double();
-            current_row[OFFSETS.s_box + pos * 2] += c_lo;
-            current_row[OFFSETS.s_box + pos * 2 + 1] += c_hi;
-            current_row[OFFSETS.m_col_xor[0] + pos * 2] += r * c_lo;
-            current_row[OFFSETS.m_col_xor[0] + pos * 2 + 1] += r * c_hi;
-        }
-    }
-
-    offset += 16 * 9;
-    for k in 0..4 {
-        for round in 0..9 {
-            for i in 0..16 {
-                let pos = 16 * round + i;
-                let ys_pos = 16 * round + aux_m_col[k][i];
-                let ys_offset = if k < 3 {
-                    OFFSETS.s_box
-                } else {
-                    OFFSETS.m_col_xor[0]
-                };
-                let c_even = vector[offset + 16 * 9 * 2 * k + pos * 2];
-                let c_odd = vector[offset + 16 * 9 * 2 * k + pos * 2 + 1];
-                current_row[OFFSETS.m_col_xor[k] + pos * 2] += c_even;
-                current_row[ys_offset + ys_pos * 2] += r_xor * c_even;
-                current_row[OFFSETS.m_col_xor[k + 1] + pos * 2] += r2_xor * c_even;
-
-                current_row[OFFSETS.m_col_xor[k] + pos * 2 + 1] += c_odd;
-                current_row[ys_offset + ys_pos * 2 + 1] += r_xor * c_odd;
-                current_row[OFFSETS.m_col_xor[k + 1] + pos * 2 + 1] += r2_xor * c_odd;
-            }
-        }
-    }
-
-    offset += 16 * 9 * 4 * 2;
-    // add mxcolpre
-    for round in 0..9 {
-        for i in 0..16 {
-            let pos = 16 * round + i;
-            let c_even = vector[offset + pos * 2];
-            let c_odd = vector[offset + pos * 2 + 1];
-            current_row[OFFSETS.m_col_xor[4] + pos * 2] += c_even;
-            // current_row[ys_offset + ys_pos * 2] += r_xor * c_even;
-            current_row[OFFSETS.start + pos * 2] += r2_xor * c_even;
-
-            current_row[OFFSETS.m_col_xor[4] + pos * 2 + 1] += c_odd;
-            // current_row[ys_offset + ys_pos * 2 + 1] += r_xor * c_odd;
-            current_row[OFFSETS.start + pos * 2 + 1] += r2_xor * c_odd;
-        }
-    }
-    current_row
-}
 
 /// Compute needles and frequencies
 /// Return (needles, frequencies, frequencies_u8)
@@ -365,7 +184,7 @@ where
 
     // commit to trace of the program.
     // TIME: ~3-4ms [outdated]
-    let witness_vector = vectorize_witness(&witness);
+    let witness_vector = helper::vectorize_witness(&witness);
     let (witness_com, omega) = pedersen::commit_hiding_u8(rng, &ck, &witness_vector);
 
     // Send W
@@ -464,7 +283,7 @@ where
     ////////////////////////////// Sigma protocols //////////////////////////////
 
     ////////////////////// First sigma: <m, h> = y ////////////////////
-    proof.sigmas.sigma_proof_m_h = sigma_linear_evaluation_prover(
+    proof.sigmas.proof_m_h = sigma::lineval_prover(
         rng,
         transcript,
         ck,
@@ -495,7 +314,7 @@ where
     let Y_1_z_Y_blinder = epsilon + z * psi;
 
     // Finally compute the sigma proof
-    proof.sigmas.sigma_proof_q_1_tensor = sigma_linear_evaluation_prover(
+    proof.sigmas.proof_q_1_tensor = sigma::lineval_prover(
         rng,
         transcript,
         ck,
@@ -511,7 +330,7 @@ where
     let y_2 = linalg::inner_product(&needles, &tensor_evaluation_point);
     let (Y_2, _iota) = pedersen::commit_hiding(rng, &ck, &[y_2]);
     // XXX need to figure out what blinder to put for needles below instead of theta
-    proof.sigmas.sigma_proof_f_tensor = sigma_linear_evaluation_prover(
+    proof.sigmas.sigma_proof_f_tensor = sigma::lineval_prover(
         rng,
         transcript,
         ck,
@@ -524,6 +343,7 @@ where
 
     proof
 }
+
 
 #[test]
 fn test_prove() {

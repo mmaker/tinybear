@@ -23,7 +23,7 @@ pub struct SigmaProof<G: CurveGroup> {
 /// Prove that <x, a> = y, where x and y are private
 /// phi is blinder of vec_x
 /// psi is blinder of y
-pub fn sigma_linear_evaluation_prover<G: CurveGroup>(
+pub fn lineval_prover<G: CurveGroup>(
     csrng: &mut (impl RngCore + CryptoRng),
     transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &CommitmentKey<G>,
@@ -73,7 +73,7 @@ pub fn sigma_linear_evaluation_prover<G: CurveGroup>(
 }
 
 /// Verify a proof that given commitment X, its opening x has: <x, a> = y
-pub fn sigma_linear_evaluation_verifier<G: CurveGroup>(
+pub fn lineval_verifier<G: CurveGroup>(
     transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &CommitmentKey<G>,
 
@@ -150,7 +150,7 @@ fn test_sigma_end_to_end() {
 
     // Let's prove!
     let sigma_proof =
-        sigma_linear_evaluation_prover(rng, &mut transcript_p, &ck, &vec_x, phi, psi, &vec_a);
+        lineval_prover(rng, &mut transcript_p, &ck, &vec_x, phi, psi, &vec_a);
 
-    sigma_linear_evaluation_verifier(&mut transcript_v, &ck, &vec_a, &X, &Y, &sigma_proof);
+    lineval_verifier(&mut transcript_v, &ck, &vec_a, &X, &Y, &sigma_proof);
 }
