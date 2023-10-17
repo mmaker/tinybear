@@ -198,11 +198,11 @@ pub struct KeySchTrace {
 pub struct RoundTrace {
     // be careful here: SBOX is applied after shiftrows
     pub s_box: [u8; 16],
-    pub m_col_xor: [[u8; 16]; 5],
+    pub m_col: [[u8; 16]; 5],
     pub start: [u8; 16],
 
     pub _s_row: [u8; 16],
-    pub _aux_m_col_xor: [[u8; 16]; 4],
+    pub _aux_m_col: [[u8; 16]; 4],
 }
 
 /// The AES witness containing the full computation trace.
@@ -211,35 +211,34 @@ pub struct RoundTrace {
 ///
 /// k_sch_s_box: 44
 /// start: 160
-/// final_s_box: 16
+/// final_s_box: 1s6
 /// k_sch: 44 * 5
-/// m_col_xor: 144 * 5
+/// m_col: 144 * 5
 #[derive(Default)]
 pub struct Witness {
     // keyschedule variables
     pub k_sch_s_box: Vec<u8>,
     pub k_sch: [Vec<u8>; 5],
-    // round variables
+    // cipher variables
     pub start: Vec<u8>,
     pub s_box: Vec<u8>,
-    pub m_col_xor: [Vec<u8>; 5],
+    pub m_col: [Vec<u8>; 5],
     // last round
     pub output: [u8; 16],
     // key schedule permutations
     pub _k_rot: Vec<u8>,
     // cipher permutations
     pub _s_row: Vec<u8>,
-    pub _aux_m_col_xor: [Vec<u8>; 4],
+    pub _aux_m_col: [Vec<u8>; 4],
 }
 
 impl Witness {
     pub fn add_round(&mut self, round_trace: &RoundTrace) {
         self._s_row.extend(&round_trace._s_row);
         self.s_box.extend(&round_trace.s_box);
-        (0..5).for_each(|i| self.m_col_xor[i].extend(&round_trace.m_col_xor[i]));
+        (0..5).for_each(|i| self.m_col[i].extend(&round_trace.m_col[i]));
         self.start.extend(&round_trace.start);
-
-        (0..4).for_each(|i| self._aux_m_col_xor[i].extend(&round_trace._aux_m_col_xor[i]));
+        (0..4).for_each(|i| self._aux_m_col[i].extend(&round_trace._aux_m_col[i]));
     }
 
     pub fn add_keyschedule(&mut self, k_sch_trace: &KeySchTrace) {
@@ -281,7 +280,6 @@ pub fn final_round_trace(state: [u8; 16], key: [u8; 16]) -> [[u8; 16]; 3] {
     let _s_row = shiftrows(state);
     let s_box = sbox(_s_row);
     let start = xor(s_box, key);
-
     [_s_row, s_box, start]
 }
 
@@ -292,23 +290,23 @@ pub fn aes_round_trace(state: [u8; 16], key: [u8; 16]) -> RoundTrace {
     // sbox
     trace.s_box = sbox(trace._s_row);
     for (i, &x) in trace.s_box.iter().enumerate() {
-        trace.m_col_xor[0][i] = M_COL_HELP[x as usize];
+        trace.m_col[0][i] = M_COL_HELP[x as usize];
     }
     // mixcolumns: generate the rotations of the vectors to xor.
-    trace._aux_m_col_xor[0] = trace.s_box;
-    rotate_right_inplace(&mut trace._aux_m_col_xor[0], 1);
-    trace._aux_m_col_xor[1] = trace.s_box;
-    rotate_right_inplace(&mut trace._aux_m_col_xor[1], 2);
-    trace._aux_m_col_xor[2] = trace.s_box;
-    rotate_right_inplace(&mut trace._aux_m_col_xor[2], 3);
-    trace._aux_m_col_xor[3] = trace.m_col_xor[0];
-    rotate_right_inplace(&mut trace._aux_m_col_xor[3], 3);
+    trace._aux_m_col[0] = trace.s_box;
+    rotate_right_inplace(&mut trace._aux_m_col[0], 1);
+    trace._aux_m_col[1] = trace.s_box;
+    rotate_right_inplace(&mut trace._aux_m_col[1], 2);
+    trace._aux_m_col[2] = trace.s_box;
+    rotate_right_inplace(&mut trace._aux_m_col[2], 3);
+    trace._aux_m_col[3] = trace.m_col[0];
+    rotate_right_inplace(&mut trace._aux_m_col[3], 3);
     // mixcolumns
-    trace.m_col_xor[1] = xor(trace.m_col_xor[0], trace._aux_m_col_xor[0]);
-    trace.m_col_xor[2] = xor(trace.m_col_xor[1], trace._aux_m_col_xor[1]);
-    trace.m_col_xor[3] = xor(trace.m_col_xor[2], trace._aux_m_col_xor[2]);
-    trace.m_col_xor[4] = xor(trace.m_col_xor[3], trace._aux_m_col_xor[3]);
-    trace.start = xor(trace.m_col_xor[4], key);
+    trace.m_col[1] = xor(trace.m_col[0], trace._aux_m_col[0]);
+    trace.m_col[2] = xor(trace.m_col[1], trace._aux_m_col[1]);
+    trace.m_col[3] = xor(trace.m_col[2], trace._aux_m_col[2]);
+    trace.m_col[4] = xor(trace.m_col[3], trace._aux_m_col[3]);
+    trace.start = xor(trace.m_col[4], key);
     trace
 }
 

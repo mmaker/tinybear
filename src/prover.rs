@@ -57,7 +57,7 @@ pub struct TinybearProof<G: CurveGroup> {
 
 fn get_r2j_witness(witness: &aes::Witness) -> Vec<(u8, u8)> {
     let xs = witness.s_box.iter().copied();
-    let ys = witness.m_col_xor[0].iter().copied();
+    let ys = witness.m_col[0].iter().copied();
     xs.zip(ys).collect()
 }
 
@@ -73,15 +73,15 @@ fn get_xor_witness(witness: &aes::Witness) -> Vec<(u8, u8, u8)> {
     let mut witness_xor = Vec::new();
     // m_col_xor
     for i in 0..4 {
-        let xs = witness.m_col_xor[i].iter().copied();
-        let ys = witness._aux_m_col_xor[i].iter().copied();
-        let zs = witness.m_col_xor[i + 1].iter().copied();
+        let xs = witness.m_col[i].iter().copied();
+        let ys = witness._aux_m_col[i].iter().copied();
+        let zs = witness.m_col[i + 1].iter().copied();
         let new_witness = xs.zip(ys).zip(zs).map(|((x, y), z)| (x, y, z));
         witness_xor.extend(new_witness)
     }
     // addroundkey_xor
     {
-        let xs = witness.m_col_xor[4].iter().copied();
+        let xs = witness.m_col[4].iter().copied();
         let zs = witness.start.iter().copied();
         // ys are the round keys
         let new_witness = xs.zip(zs).map(|(x, z)| (x, x ^ z, z));
