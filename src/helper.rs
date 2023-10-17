@@ -187,21 +187,21 @@ fn lin_xor_addroundkey<F: Field>(stmt: AesEMStatement, dst: &mut [F], v: &[F], r
         constant_term += r2 * v_odd * F::from(stmt.output[i] >> 4);
     }
 
-    // // initial round is missing
-    // for i in 0..16 {
-    //     let pos = 16 * 10 + i;
-    //     let v_even = v[pos * 2];
-    //     let v_odd = v[pos * 2 + 1];
-    //     dst[(OFFSETS.start + pos) * 2] += r2 * v_even;
-    //     dst[(OFFSETS.start + pos) * 2 + 1] += r2 * v_odd;
+    // initial round is missing
+    for i in 0..16 {
+        let pos = 16 * 10 + i;
+        let v_even = v[pos * 2];
+        let v_odd = v[pos * 2 + 1];
+        dst[(OFFSETS.start + i) * 2] += r2 * v_even;
+        dst[(OFFSETS.start + i) * 2 + 1] += r2 * v_odd;
 
-    //     // initial round key missing
-    //     constant_term += r * v_even * F::from(stmt.round_keys[0][i] & 0xf);
-    //     constant_term += r * v_odd * F::from(stmt.round_keys[0][i] >> 4);
-    //     // message missing
-    //     constant_term += r2 * v_even * F::from(stmt.message[i] & 0xf);
-    //     constant_term += r2 * v_odd * F::from(stmt.message[i] >> 4);
-    // }
+        // initial round key missing
+        constant_term += r * v_even * F::from(stmt.round_keys[0][i] & 0xf);
+        constant_term += r * v_odd * F::from(stmt.round_keys[0][i] >> 4);
+        // message missing
+        constant_term += v_even * F::from(stmt.message[i] & 0xf);
+        constant_term +=  v_odd * F::from(stmt.message[i] >> 4);
+    }
     constant_term
 }
 
