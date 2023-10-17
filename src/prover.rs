@@ -86,8 +86,8 @@ fn get_xor_witness(witness: &aes::Witness) -> Vec<(u8, u8, u8)> {
     }
     // last round
     {
-        let xs = witness.s_box.iter().skip(9*16).copied();
-        let ys = witness._keys.iter().flatten().skip(10*16).copied();
+        let xs = witness.s_box.iter().skip(9 * 16).copied();
+        let ys = witness._keys.iter().flatten().skip(10 * 16).copied();
         let zs = witness.output.iter().copied();
         let new_witness = xs.zip(ys).zip(zs).map(|((x, y), z)| (x, y, z));
         witness_xor.extend(new_witness);

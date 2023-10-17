@@ -268,7 +268,7 @@ pub fn aes128_trace(message: [u8; 16], key: [u8; 16]) -> Witness {
     let mut witness = Witness::default();
     witness.message = message;
 
-    let k_sch_trace= keyschedule_trace(&key);
+    let k_sch_trace = keyschedule_trace(&key);
     witness.add_keyschedule(&k_sch_trace);
     let round_keys = k_sch_trace._keys;
 

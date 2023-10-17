@@ -7,6 +7,7 @@ pub(super) struct AesWitnessRegions {
     pub start: usize,
     pub s_box: usize,
     pub m_col: [usize; 5],
+    pub message: usize,
     pub cipher_len: usize,
 }
 
@@ -19,6 +20,8 @@ pub(super) struct AesWitnessRegions {
 /// |   .sbox      |
 /// +--------------+
 /// |   .m_col     |
+/// +--------------+
+/// |   .message   |
 /// +--------------+
 /// ```
 /// where:
@@ -35,6 +38,8 @@ pub(super) struct AesWitnessRegions {
 ///   `m_col[1]` up to `m_col[4]` denotes the state at the end of each xor operation.
 ///    Therefore, it has length 16 * 9 * 5 = 720.
 ///    (Note: the final AddRoundKey operation is not included involves `.start` and `.m_col[4]`)
+/// - `.message`
+///  denotes the message.
 ///
 /// The final witness length is therefore 160 + 160 + 720 = 1040.
 pub(super) const OFFSETS: AesWitnessRegions = {
@@ -50,14 +55,15 @@ pub(super) const OFFSETS: AesWitnessRegions = {
         m_col_offset + m_col_len * 3,
         m_col_offset + m_col_len * 4,
     ];
-    let addroundkey_len = 16  * 11;
-    let cipher_len = m_col[4] + m_col_len + addroundkey_len;
+    // let addroundkey_len = 16 * 11;
+    let message = m_col[4] + m_col_len;
 
     AesWitnessRegions {
         start,
         s_box,
         m_col,
-        cipher_len,
+        message,
+        cipher_len: message + 16,
     }
 };
 
@@ -148,7 +154,6 @@ fn lin_xor_m_col_map<F: Field>(dst: &mut [F], v: &[F], r: F, r2: F) {
 }
 
 struct AesEMStatement {
-    message: [u8; 16],
     round_keys: [[u8; 16]; 11],
     output: [u8; 16],
 }
@@ -192,15 +197,18 @@ fn lin_xor_addroundkey<F: Field>(stmt: AesEMStatement, dst: &mut [F], v: &[F], r
         let pos = 16 * 10 + i;
         let v_even = v[pos * 2];
         let v_odd = v[pos * 2 + 1];
-        dst[(OFFSETS.start + i) * 2] += r2 * v_even;
-        dst[(OFFSETS.start + i) * 2 + 1] += r2 * v_odd;
+        // message missing
+        // constant_term += v_even * F::from(stmt.message[i] & 0xf);
+        // constant_term += v_odd * F::from(stmt.message[i] >> 4);
+        dst[(OFFSETS.message + i) * 2] += v_even;
+        dst[(OFFSETS.message + i) * 2 + 1] += v_odd;
 
         // initial round key missing
         constant_term += r * v_even * F::from(stmt.round_keys[0][i] & 0xf);
         constant_term += r * v_odd * F::from(stmt.round_keys[0][i] >> 4);
-        // message missing
-        constant_term += v_even * F::from(stmt.message[i] & 0xf);
-        constant_term +=  v_odd * F::from(stmt.message[i] >> 4);
+
+        dst[(OFFSETS.start + i) * 2] += r2 * v_even;
+        dst[(OFFSETS.start + i) * 2 + 1] += r2 * v_odd;
     }
     constant_term
 }
@@ -256,12 +264,7 @@ fn test_trace_to_needles_map() {
     let witness = aes::aes128_trace(message, key);
     let mut vector = vec![F::from(0); OFFSETS.cipher_len * 2];
 
-    // let's do some counting of the constraints in this protocol
-    let constraints_sbox = 10 * 16;
-    let constraints_rj2 = 9 * 16;
-    let constraints_m_col = 9 * 16 * 4 * 2;
-    let constraints_addroundkey = 16 * 2 * 12 ;
-    for i in 0.. vector.len() { // constraints_sbox + constraints_rj2 + constraints_m_col + constraints_addroundkey {
+    for i in 0..vector.len() {
         vector[i] = F::rand(rng);
     }
 
@@ -272,15 +275,21 @@ fn test_trace_to_needles_map() {
 
     let (needles, _, _) =
         prover::compute_needles_and_frequencies(&witness, r_xor, r2_xor, r_sbox, r_rj2);
-    println!("needles: {:?}", needles.len());
     let got = linalg::inner_product(&needles, &vector);
 
-    let trace = vectorize_witness(&witness)
-        .iter()
-        .map(|x| F::from(*x))
+    let cipher_trace = vectorize_witness(&witness);
+
+    let message = witness.message.iter().map(|x| [x & 0xf, x >> 4]).flatten();
+
+    let trace = cipher_trace
+        .into_iter()
+        .chain(message)
+        .map(|x| F::from(x))
         .collect::<Vec<_>>();
+
     let stmt = (&witness).into();
-    let (needled_vector, constant_term)  = trace_to_needles_map(stmt, &vector, r_sbox, r_rj2, r_xor, r2_xor);
+    let (needled_vector, constant_term) =
+        trace_to_needles_map(stmt, &vector, r_sbox, r_rj2, r_xor, r2_xor);
     let expected = linalg::inner_product(&needled_vector, &trace) + constant_term;
     assert_eq!(got, expected);
 }
