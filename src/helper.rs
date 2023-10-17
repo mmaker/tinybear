@@ -172,20 +172,20 @@ fn lin_xor_addroundkey<F: Field>(stmt: AesEMStatement, dst: &mut [F], v: &[F], r
             constant_term += r * v_odd * F::from(stmt.round_keys[round + 1][i] >> 4);
         }
     }
-    // // final round
-    // for i in 0..16 {
-    //     let pos = 16 * 9 + i;
-    //     let v_even = v[pos * 2];
-    //     let v_odd = v[pos * 2 + 1];
-    //     dst[(OFFSETS.m_col[4] + pos) * 2] += v_even;
-    //     dst[(OFFSETS.m_col[4] + pos) * 2 + 1] += v_odd;
-    //     // final round key missing
-    //     constant_term += r * v_even * F::from(stmt.round_keys[10][i] & 0xf);
-    //     constant_term += r * v_odd * F::from(stmt.round_keys[10][i] >> 4);
-    //     // output missing
-    //     constant_term += r2 * v_even * F::from(stmt.output[i] & 0xf);
-    //     constant_term += r2 * v_odd * F::from(stmt.output[i] >> 4);
-    // }
+    // final round
+    for i in 0..16 {
+        let pos = 16 * 9 + i;
+        let v_even = v[pos * 2];
+        let v_odd = v[pos * 2 + 1];
+        dst[(OFFSETS.s_box + pos) * 2] += v_even;
+        dst[(OFFSETS.s_box + pos) * 2 + 1] += v_odd;
+        // final round key missing
+        constant_term += r * v_even * F::from(stmt.round_keys[10][i] & 0xf);
+        constant_term += r * v_odd * F::from(stmt.round_keys[10][i] >> 4);
+        // output missing
+        constant_term += r2 * v_even * F::from(stmt.output[i] & 0xf);
+        constant_term += r2 * v_odd * F::from(stmt.output[i] >> 4);
+    }
 
     // // initial round is missing
     // for i in 0..16 {
@@ -260,8 +260,8 @@ fn test_trace_to_needles_map() {
     let constraints_sbox = 10 * 16;
     let constraints_rj2 = 9 * 16;
     let constraints_m_col = 9 * 16 * 4 * 2;
-    let constraints_addroundkey = 16 * 2 * 11;
-    for i in 0..constraints_sbox + constraints_rj2 + constraints_m_col + constraints_addroundkey {
+    let constraints_addroundkey = 16 * 2 * 12 ;
+    for i in 0.. vector.len() { // constraints_sbox + constraints_rj2 + constraints_m_col + constraints_addroundkey {
         vector[i] = F::rand(rng);
     }
 
