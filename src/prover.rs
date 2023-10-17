@@ -55,7 +55,7 @@ pub struct TinybearProof<G: CurveGroup> {
     pub sigmas: LinearEvaluationProofs<G>,
 }
 
-fn get_m_col_pre_witness(witness: &aes::Witness) -> Vec<(u8, u8)> {
+fn get_r2j_witness(witness: &aes::Witness) -> Vec<(u8, u8)> {
     let xs = witness.s_box.iter().copied();
     let ys = witness.m_col_xor[0].iter().copied();
     xs.zip(ys).collect()
@@ -65,8 +65,6 @@ fn get_m_col_pre_witness(witness: &aes::Witness) -> Vec<(u8, u8)> {
 fn get_s_box_witness(witness: &aes::Witness) -> Vec<(u8, u8)> {
     let s_box = witness._s_row.iter().zip(&witness.s_box);
     // let k_sch_s_box = witness._k_rot.iter().zip(&witness.k_sch_s_box);
-    // let final_s_box = witness._final_s_row.iter().zip(&witness.final_s_box);
-    // s_box.chain(final_s_box).map(|(&x, &y)| (x, y)).collect()
     s_box.map(|(&x, &y)| (x, y)).collect()
 }
 
@@ -107,12 +105,12 @@ fn get_xor_witness(witness: &aes::Witness) -> Vec<(u8, u8, u8)> {
     //     }
     // }
     // final_round_xor
-    {
-        let xs = witness.final_s_box.iter().copied();
-        let zs = witness.output.iter().copied();
-        let new_witness = xs.zip(zs).map(|(x, z)| (x, x ^ z, z));
-        witness_xor.extend(new_witness)
-    }
+    // {
+    //     let xs = witness.s_box.iter().copied();
+    //     let zs = witness.output.iter().copied();
+    //     let new_witness = xs.zip(zs).map(|(x, z)| (x, x ^ z, z));
+    //     witness_xor.extend(new_witness)
+    // }
     witness_xor
 }
 
@@ -130,7 +128,7 @@ pub fn compute_needles_and_frequencies<F: Field>(
     // witness_s_box = [(a, sbox(a)), (b, sbox(b)), ...]
     let witness_s_box = get_s_box_witness(witness);
 
-    let witness_m_col_pre = get_m_col_pre_witness(witness);
+    let witness_r2j = get_r2j_witness(witness);
 
     // witness_xor = [(a, b, xor(a, b)), (c, d, xor(c, d)), ...]
     let witness_xor = get_xor_witness(witness);
@@ -140,23 +138,23 @@ pub fn compute_needles_and_frequencies<F: Field>(
 
     // s_box_needles = [x_1 + r * sbox[x_1], x_2 + r * sbox[x_2], ...]
     let s_box_needles = lookup::compute_u8_needles(&witness_s_box, r_sbox);
-    let m_col_pre_needles = lookup::compute_u8_needles(&witness_m_col_pre, r_mul);
+    let r2j_needles = lookup::compute_u8_needles(&witness_r2j, r_mul);
 
     // ASN xor_needles = ??? 4 bit stuff
     let xor_needles = lookup::compute_u16_needles(&witness_xor, [r_xor, r2_xor]);
 
-    let needles = [s_box_needles, m_col_pre_needles, xor_needles].concat();
+    let needles = [s_box_needles, r2j_needles, xor_needles].concat();
 
     // Frequencies: these count how many times each element will appear in the haystack.
     // To do so, we build the frequency vectors.
     // Frequencies are organized in this way
-    // | 4-bit xor | sbox | m_col_pre |
+    // | 4-bit xor | sbox | r2j |
     // |  256      | 256  | 256       |
     // First, group witness by lookup table.
     let mut frequencies_u8 = vec![0u8; 256 * 3];
     lookup::count_u16_frequencies(&mut frequencies_u8[0..256], &witness_xor);
     lookup::count_u8_frequencies(&mut frequencies_u8[256..512], &witness_s_box);
-    lookup::count_u8_frequencies(&mut frequencies_u8[512..768], &witness_m_col_pre);
+    lookup::count_u8_frequencies(&mut frequencies_u8[512..768], &witness_r2j);
 
     let frequencies = frequencies_u8
         .iter()

@@ -98,7 +98,7 @@ pub fn compute_haystack<F: Field>(
             F::from(x) + r_sbox * F::from(y)
         })
         .collect::<Vec<_>>();
-    let haystack_m_col_pre = (0u8..=255)
+    let haystack_r2j = (0u8..=255)
         .map(|i| {
             let x = i;
             let y = aes::M_COL_HELP[x as usize];
@@ -107,7 +107,7 @@ pub fn compute_haystack<F: Field>(
         .collect::<Vec<_>>();
 
     // Compute vector of inverse_haystack[i] = 1 / (haystack[i] + a) = h
-    let haystack = [haystack_xor, haystack_s_box, haystack_m_col_pre].concat();
+    let haystack = [haystack_xor, haystack_s_box, haystack_r2j].concat();
     let mut inverse_haystack = haystack
         .iter()
         .map(|x| lookup_challenge + x)

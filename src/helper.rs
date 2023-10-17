@@ -22,9 +22,8 @@ pub(super) struct AesWitnessRegions {
 pub(super) const OFFSETS: AesWitnessRegions = {
     let start = 0;
     let s_box = start + 16 * 9 + 16;
-    // let final_s_box = s_box + 2 * 16;
     // thank Rust for const for loops
-    let m_col_offset = s_box + 16 * 9;
+    let m_col_offset = s_box + 16 * 10;
     let m_col_len = 16 * 9;
     let m_col_xor = [
         m_col_offset + m_col_len * 0,
@@ -55,14 +54,10 @@ pub(crate) fn vectorize_witness(witness: &aes::Witness) -> Vec<u8> {
     w.extend(&witness.start);
     assert_eq!(OFFSETS.s_box, w.len());
     w.extend(&witness.s_box);
-    // assert_eq!(OFFSETS.final_s_box, w.len());
-    // w.extend(&witness.final_s_box);
-
     for i in 0..5 {
         assert_eq!(OFFSETS.m_col_xor[i], w.len());
         w.extend(&witness.m_col_xor[i]);
     }
-
     // split the witness and low and high 4-bits.
     w.iter().map(|x| [x & 0xf, x >> 4]).flatten().collect()
 }
@@ -71,7 +66,7 @@ fn lin_sbox_map<F: Field>(dst: &mut [F], v: &[F], r: F) {
     let identity = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
     let s_row = aes::shiftrows(identity);
 
-    for round in 0..9 {
+    for round in 0..10 {
         for i in 0..16 {
             let s_row_pos = 16 * round + s_row[i] as usize;
             let s_box_pos = 16 * round + i;
@@ -174,7 +169,7 @@ fn trace_to_needles_map<F: Field>(src: &[F], r_sbox: F, r_rj2: F, r_xor: F, r2_x
     let mut offset = 0;
     lin_sbox_map(&mut dst, src, r_sbox);
     // rj2
-    offset += 16 * 9;
+    offset += 16 * 10;
     lin_rj2_map(&mut dst, &src[offset..], r_rj2);
     // xor
     offset += 16 * 9;
@@ -202,7 +197,7 @@ fn test_trace_to_needles_map() {
     ];
     let witness = aes::aes128_trace(message, key);
     let mut vector = vec![F::from(0u8); 3000];
-    for i in 0 .. 9*16 + 9 * 16{
+    for i in 0 .. 10*16 + 9 * 16{
         vector[i] = F::rand(rng);
     }
 

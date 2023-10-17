@@ -224,15 +224,12 @@ pub struct Witness {
     pub s_box: Vec<u8>,
     pub m_col_xor: [Vec<u8>; 5],
     // last round
-    pub final_s_box: [u8; 16],
     pub output: [u8; 16],
-    // permutations from key schedule
+    // key schedule permutations
     pub _k_rot: Vec<u8>,
-    // permutations from rounds
+    // cipher permutations
     pub _s_row: Vec<u8>,
     pub _aux_m_col_xor: [Vec<u8>; 4],
-    // last round
-    pub _final_s_row: [u8; 16],
 }
 
 impl Witness {
@@ -254,8 +251,8 @@ impl Witness {
 
     pub fn add_finalround(&mut self, trace: [[u8; 16]; 3]) {
         let [_final_s_row, final_s_box, output] = trace;
-        self._final_s_row = _final_s_row;
-        self.final_s_box = final_s_box;
+        self._s_row.extend(_final_s_row);
+        self.s_box.extend(final_s_box);
         self.output = output;
     }
 }
