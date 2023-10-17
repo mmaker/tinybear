@@ -6,13 +6,13 @@ use ark_ff::Field;
 pub(super) struct AesWitnessRegions {
     pub start: usize,
     pub s_box: usize,
-    pub m_col_xor: [usize; 5],
+    pub m_col: [usize; 5],
     pub len: usize,
 }
 
 /// The witness is structured as follows:
 ///
-/// ````
+/// ```text
 /// +--------------+
 /// |   .start     |
 /// +--------------+
@@ -50,11 +50,13 @@ pub(super) const OFFSETS: AesWitnessRegions = {
         m_col_offset + m_col_len * 3,
         m_col_offset + m_col_len * 4,
     ];
+    let addroundkey = m_col[4] + m_col_len;
+
 
     AesWitnessRegions {
         start,
         s_box,
-        m_col_xor: m_col,
+        m_col,
         len: m_col[4] + m_col_len,
     }
 };
@@ -74,7 +76,7 @@ pub(crate) fn vectorize_witness(witness: &aes::Witness) -> Vec<u8> {
     assert_eq!(OFFSETS.s_box, w.len());
     w.extend(&witness.s_box);
     for i in 0..5 {
-        assert_eq!(OFFSETS.m_col_xor[i], w.len());
+        assert_eq!(OFFSETS.m_col[i], w.len());
         w.extend(&witness.m_col[i]);
     }
     // split the witness and low and high 4-bits.
@@ -107,8 +109,8 @@ fn lin_rj2_map<F: Field>(dst: &mut [F], v: &[F], r: F) {
             let c_hi = c_lo.double().double().double().double();
             dst[(OFFSETS.s_box + pos) * 2] += c_lo;
             dst[(OFFSETS.s_box + pos) * 2 + 1] += c_hi;
-            dst[(OFFSETS.m_col_xor[0] + pos) * 2] += r * c_lo;
-            dst[(OFFSETS.m_col_xor[0] + pos) * 2 + 1] += r * c_hi;
+            dst[(OFFSETS.m_col[0] + pos) * 2] += r * c_lo;
+            dst[(OFFSETS.m_col[0] + pos) * 2 + 1] += r * c_hi;
         }
     }
 }
@@ -129,20 +131,40 @@ fn lin_xor_map<F: Field>(dst: &mut [F], v: &[F], r: F, r2: F) {
                 let ys_offset = if k < 3 {
                     OFFSETS.s_box
                 } else {
-                    OFFSETS.m_col_xor[0]
+                    OFFSETS.m_col[0]
                 };
-                let c_even = v[(16 * 9 * k + pos) * 2];
-                let c_odd = v[(16 * 9 * k + pos) * 2 + 1];
-                dst[(OFFSETS.m_col_xor[k] + pos) * 2] += c_even;
-                dst[(ys_offset + ys_pos) * 2] += r * c_even;
-                dst[(OFFSETS.m_col_xor[k + 1] + pos) * 2] += r2 * c_even;
+                let v_even = v[(16 * 9 * k + pos) * 2];
+                let v_odd = v[(16 * 9 * k + pos) * 2 + 1];
+                dst[(OFFSETS.m_col[k] + pos) * 2] += v_even;
+                dst[(ys_offset + ys_pos) * 2] += r * v_even;
+                dst[(OFFSETS.m_col[k + 1] + pos) * 2] += r2 * v_even;
 
-                dst[(OFFSETS.m_col_xor[k] + pos) * 2 + 1] += c_odd;
-                dst[(ys_offset + ys_pos) * 2 + 1] += r * c_odd;
-                dst[(OFFSETS.m_col_xor[k + 1] + pos) * 2 + 1] += r2 * c_odd;
+                dst[(OFFSETS.m_col[k] + pos) * 2 + 1] += v_odd;
+                dst[(ys_offset + ys_pos) * 2 + 1] += r * v_odd;
+                dst[(OFFSETS.m_col[k + 1] + pos) * 2 + 1] += r2 * v_odd;
             }
         }
     }
+
+    // // constrain each AddRoundKey
+    // let offset = 16 * 9 * 4;
+    // {
+    //     for round in 0 .. 9 {
+    //         for i in 0 .. 16 {
+    //             let pos = 16 * round + i;
+    //             let v_even = v[(offset + pos) * 2];
+    //             let v_odd = v[(offset + pos) * 2 + 1];
+    //             dst[(OFFSETS.m_col[4] + pos) * 2] += v_even;
+    //             dst[(OFFSETS.start + pos) * 2] += r * v_even;
+
+
+    //             dst[(OFFSETS.m_col[4] + pos) * 2 + 1] += v_odd;
+    //             dst[(OFFSETS.start + pos) * 2 + 1] += r * v_odd;
+    //         }
+    //     }
+    // }
+
+    // now constrain the first round
 }
 
 
@@ -177,15 +199,15 @@ fn test_trace_to_needles_map() {
         0x0C,
     ];
     let witness = aes::aes128_trace(message, key);
-    let mut vector = vec![F::from(0); 3000];
-    for i in 0 .. 10*16 + 9 * 16 + 9*16*4 {
+    let mut vector = vec![F::from(0); OFFSETS.len * 2];
+    for i in 0 .. OFFSETS.m_col[1] * 2 {
         vector[i] = F::rand(rng);
     }
 
-    let r_xor =  F::from(2);
-    let r2_xor = F::from(100);
-    let r_sbox =  F::from(42);
-    let r_rj2 =  F::from(0x42);
+    let r_xor =  F::rand(rng);
+    let r2_xor = F::rand(rng);
+    let r_sbox =  F::rand(rng);
+    let r_rj2 =  F::rand(rng);
 
     let (needles, _, _) = prover::compute_needles_and_frequencies(&witness, r_xor, r2_xor, r_sbox, r_rj2);
     let got = linalg::inner_product(&needles, &vector);

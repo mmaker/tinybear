@@ -216,6 +216,7 @@ pub struct RoundTrace {
 /// m_col: 144 * 5
 #[derive(Default)]
 pub struct Witness {
+    pub message: [u8; 16],
     // keyschedule variables
     pub k_sch_s_box: Vec<u8>,
     pub k_sch: [Vec<u8>; 5],
@@ -258,6 +259,7 @@ impl Witness {
 
 pub fn aes128_trace(message: [u8; 16], key: [u8; 16]) -> Witness {
     let mut witness = Witness::default();
+    witness.message = message;
 
     let (k_sch_trace, round_keys) = keyschedule_trace(&key);
     witness.add_keyschedule(&k_sch_trace);
