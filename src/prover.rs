@@ -8,12 +8,8 @@ use ark_serialize::CanonicalSerialize;
 use transcript::IOPTranscript;
 
 use super::{aes, helper, linalg, lookup, pedersen, sigma, sumcheck};
+use crate::pedersen::CommitmentKey;
 use crate::sigma::SigmaProof;
-use crate::{pedersen::CommitmentKey};
-
-
-
-
 
 // A summary of the evaluations and proofs required in the protocol.
 #[derive(Default, CanonicalSerialize)]
@@ -79,22 +75,25 @@ fn get_xor_witness(witness: &aes::Witness) -> Vec<(u8, u8, u8)> {
         let new_witness = xs.zip(ys).zip(zs).map(|((x, y), z)| (x, y, z));
         witness_xor.extend(new_witness)
     }
-    // add round key xor
+    // round key xor
     {
         let xs = witness.m_col[4].iter().copied();
-        let zs = witness.start.iter().copied();
+        let zs = witness.start.iter().skip(16).copied();
+        let ys = witness._keys.iter().flatten().skip(16).copied();
         // ys are the round keys
-        let new_witness = xs.zip(zs).map(|(x, z)| (x, x ^ z, z));
+        let new_witness = xs.zip(ys).zip(zs).map(|((x, y), z)| (x, y, z));
         witness_xor.extend(new_witness)
     }
-    // first round xor
-    {
-        let xs = witness.message.iter().copied();
-        let zs = witness.start[..16].iter().copied();
-        // ys is the 0th round key
-        let new_witness = xs.zip(zs).map(|(x, z)| (x, x ^ z, z));
-        witness_xor.extend(new_witness);
-    }
+    // last round
+    // // first round xor
+    // {
+    //     let xs = witness.message.iter().copied();
+    //     let zs = witness.start[..16].iter().copied();
+    //     // ys is the 0th round key
+    //     let new_witness = xs.zip(zs).map(|(x, z)| (x, x ^ z, z));
+    //     witness_xor.extend(new_witness);
+    // }
+
     // k_sch_xor
     // for i in 0..witness.k_sch[0].len() {
     //     let (x, z) = (witness.k_sch_s_box[i], witness.k_sch[0][i]);
@@ -121,7 +120,6 @@ fn get_xor_witness(witness: &aes::Witness) -> Vec<(u8, u8, u8)> {
     // }
     witness_xor
 }
-
 
 /// Compute needles and frequencies
 /// Return (needles, frequencies, frequencies_u8)
@@ -349,7 +347,6 @@ where
 
     proof
 }
-
 
 #[test]
 fn test_prove() {

@@ -82,7 +82,7 @@ pub fn mixcolumns(mut state: [u8; 16]) -> [u8; 16] {
     state
 }
 
-pub fn keyschedule_trace(key: &[u8; 16]) -> (KeySchTrace, [[u8; 16]; 11]) {
+pub fn keyschedule_trace(key: &[u8; 16]) -> KeySchTrace {
     let mut trace = KeySchTrace::default();
     let mut output = [[0u8; 16]; 11];
 
@@ -115,7 +115,8 @@ pub fn keyschedule_trace(key: &[u8; 16]) -> (KeySchTrace, [[u8; 16]; 11]) {
         output[i][8..12].copy_from_slice(trace.k_sch[3][i].as_ref());
         output[i][12..16].copy_from_slice(trace.k_sch[4][i].as_ref());
     }
-    (trace, output)
+    trace._keys = output;
+    trace
 }
 
 /// Naive implementation of AES's keyschedule, for testing purposes.
@@ -192,6 +193,7 @@ pub struct KeySchTrace {
     pub _k_rot: [[u8; 4]; 11],
     pub k_sch_s_box: [[u8; 4]; 11],
     pub k_sch: [[[u8; 4]; 11]; 5],
+    pub _keys: [[u8; 16]; 11],
 }
 
 #[derive(Default)]
@@ -217,6 +219,7 @@ pub struct RoundTrace {
 #[derive(Default)]
 pub struct Witness {
     pub message: [u8; 16],
+    pub key: [u8; 16],
     // keyschedule variables
     pub k_sch_s_box: Vec<u8>,
     pub k_sch: [Vec<u8>; 5],
@@ -228,6 +231,7 @@ pub struct Witness {
     pub output: [u8; 16],
     // key schedule permutations
     pub _k_rot: Vec<u8>,
+    pub _keys: [[u8; 16]; 11],
     // cipher permutations
     pub _s_row: Vec<u8>,
     pub _aux_m_col: [Vec<u8>; 4],
@@ -247,6 +251,9 @@ impl Witness {
         self.k_sch_s_box
             .extend(k_sch_trace.k_sch_s_box.iter().flatten());
         (0..5).for_each(|i| self.k_sch[i].extend(k_sch_trace.k_sch[i].iter().flatten()));
+
+        self.key = k_sch_trace._keys[0];
+        self._keys = k_sch_trace._keys;
     }
 
     pub fn add_finalround(&mut self, trace: [[u8; 16]; 3]) {
@@ -261,8 +268,9 @@ pub fn aes128_trace(message: [u8; 16], key: [u8; 16]) -> Witness {
     let mut witness = Witness::default();
     witness.message = message;
 
-    let (k_sch_trace, round_keys) = keyschedule_trace(&key);
+    let k_sch_trace= keyschedule_trace(&key);
     witness.add_keyschedule(&k_sch_trace);
+    let round_keys = k_sch_trace._keys;
 
     // first round: add key to message
     let mut round_state = xor(message, round_keys[0]);
@@ -338,7 +346,8 @@ fn test_aes_round_trace() {
 fn test_keyschedule_trace() {
     let key = [0u8; 16];
     let last_expected = b"\xb4\xef\x5b\xcb\x3e\x92\xe2\x11\x23\xe9\x51\xcf\x6f\x8f\x18\x8e".clone();
-    let (trace, keys) = keyschedule_trace(&key);
+    let trace = keyschedule_trace(&key);
+    let keys = trace._keys;
     assert_eq!(&trace.k_sch[1][10], &last_expected[..4]);
     assert_eq!(&trace.k_sch[2][10], &last_expected[4..8]);
     assert_eq!(&trace.k_sch[3][10], &last_expected[8..12]);

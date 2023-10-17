@@ -149,8 +149,7 @@ fn test_sigma_end_to_end() {
     let (Y, psi) = commit_hiding(rng, &ck, &[y]);
 
     // Let's prove!
-    let sigma_proof =
-        lineval_prover(rng, &mut transcript_p, &ck, &vec_x, phi, psi, &vec_a);
+    let sigma_proof = lineval_prover(rng, &mut transcript_p, &ck, &vec_x, phi, psi, &vec_a);
 
     lineval_verifier(&mut transcript_v, &ck, &vec_a, &X, &Y, &sigma_proof);
 }
