@@ -24,6 +24,7 @@ pub(super) struct AesWitnessRegions {
 /// |   .message   |
 /// +--------------+
 /// ```
+///
 /// where:
 /// - `.start`
 ///   denotes the state at the end of each round, except the final one.
@@ -150,12 +151,11 @@ fn lin_xor_m_col_map<F: Field>(dst: &mut [F], v: &[F], r: F, r2: F) {
             }
         }
     }
-    // now constrain the first round
 }
 
-struct AesEMStatement {
-    round_keys: [[u8; 16]; 11],
-    output: [u8; 16],
+pub(crate) struct AesEMStatement {
+    pub round_keys: [[u8; 16]; 11],
+    pub output: [u8; 16],
 }
 
 fn lin_xor_addroundkey<F: Field>(stmt: AesEMStatement, dst: &mut [F], v: &[F], r: F, r2: F) -> F {
@@ -185,6 +185,8 @@ fn lin_xor_addroundkey<F: Field>(stmt: AesEMStatement, dst: &mut [F], v: &[F], r
         dst[(OFFSETS.s_box + pos) * 2] += v_even;
         dst[(OFFSETS.s_box + pos) * 2 + 1] += v_odd;
         // final round key missing
+        // dst[(OFFSETS.message + i) * 2] += r * v_even;
+        // dst[(OFFSETS.message + i) * 2 + 1] += r * v_odd;
         constant_term += r * v_even * F::from(stmt.round_keys[10][i] & 0xf);
         constant_term += r * v_odd * F::from(stmt.round_keys[10][i] >> 4);
         // output missing
@@ -198,8 +200,6 @@ fn lin_xor_addroundkey<F: Field>(stmt: AesEMStatement, dst: &mut [F], v: &[F], r
         let v_even = v[pos * 2];
         let v_odd = v[pos * 2 + 1];
         // message missing
-        // constant_term += v_even * F::from(stmt.message[i] & 0xf);
-        // constant_term += v_odd * F::from(stmt.message[i] >> 4);
         dst[(OFFSETS.message + i) * 2] += v_even;
         dst[(OFFSETS.message + i) * 2 + 1] += v_odd;
 
@@ -238,7 +238,6 @@ fn trace_to_needles_map<F: Field>(
 impl From<&Witness> for AesEMStatement {
     fn from(value: &Witness) -> Self {
         AesEMStatement {
-            message: value.message,
             round_keys: value._keys,
             output: value.output,
         }

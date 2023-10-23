@@ -119,9 +119,8 @@ pub fn keyschedule_trace(key: &[u8; 16]) -> KeySchTrace {
     trace
 }
 
-/// Naive implementation of AES's keyschedule, for testing purposes.
-#[cfg(test)]
-fn keyschedule(key: &[u8; 16]) -> [[u8; 16]; 11] {
+/// Naive implementation of AES's keyschedule.
+pub(crate) fn keyschedule(key: &[u8; 16]) -> [[u8; 16]; 11] {
     let mut scheduled = [[0u8; 4]; 44];
     const N: usize = 4;
 
@@ -148,9 +147,8 @@ fn keyschedule(key: &[u8; 16]) -> [[u8; 16]; 11] {
     unsafe { std::mem::transmute(scheduled) }
 }
 
-/// Naive implementation of AES-128, for testing purposes.
-#[cfg(test)]
-pub fn aes_round(mut state: [u8; 16], round_key: [u8; 16]) -> [u8; 16] {
+
+fn aes_round(mut state: [u8; 16], round_key: [u8; 16]) -> [u8; 16] {
     // shiftrows before sbox so we can lookup SBOX and M_COL_HELP together
     state = shiftrows(state);
     state = sbox(state);
@@ -158,8 +156,9 @@ pub fn aes_round(mut state: [u8; 16], round_key: [u8; 16]) -> [u8; 16] {
     xor(state, round_key)
 }
 
-#[cfg(test)]
-fn aes128(message: [u8; 16], key: [u8; 16]) -> [u8; 16] {
+
+/// Naive implementation of AES-128
+pub(crate) fn aes128(message: [u8; 16], key: [u8; 16]) -> [u8; 16] {
     let keys = keyschedule(&key);
 
     let mut state = xor(message, keys[0]);

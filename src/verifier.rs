@@ -3,23 +3,33 @@ use ark_ec::CurveGroup;
 
 use transcript::IOPTranscript;
 
-use crate::linalg;
+use crate::{aes, linalg, lookup, sigma, sumcheck};
 
-use crate::lookup;
 use crate::pedersen::CommitmentKey;
 use crate::prover::TinybearProof;
-use crate::sigma::lineval_verifier;
+use crate::helper::AesEMStatement;
 
-use super::sumcheck;
 
 pub struct InvalidProof;
 type ProofResult = Result<(), InvalidProof>;
+
+fn statement_generation(key: [u8; 16], ctx: [u8; 16]) -> AesEMStatement {
+    let round_keys = aes::keyschedule(&key);
+    let output = aes::xor(ctx, round_keys[10]);
+
+    AesEMStatement {
+        round_keys,
+        output,
+    }
+
+}
 
 #[allow(unused)] // XXX during dev
 pub fn verify<G>(
     transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &CommitmentKey<G>,
     k: [u8; 16],
+    ctx: [u8; 16],
     proof: &TinybearProof<G>,
 ) -> ProofResult
 where
@@ -68,7 +78,7 @@ where
     // time to verify that g, m and y are correctly provided by the prover
 
     // // Verify first sigma: <m, h> = y
-    lineval_verifier(
+    sigma::lineval_verifier(
         transcript,
         &ck,
         &inverse_haystack,
@@ -85,7 +95,7 @@ where
     let vec_tensor_z: Vec<G::ScalarField> =
         tensor_evaluation_point.iter().map(|t| *t + z).collect();
     let Y_1_z_Y = proof.sigmas.Y_1 + proof.Y.mul(z);
-    lineval_verifier(
+    sigma::lineval_verifier(
         transcript,
         &ck,
         &vec_tensor_z,
@@ -123,9 +133,10 @@ fn test_end_to_end() {
         0xE7u8, 0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69,
         0x0C,
     ];
+    let ctx = aes::aes128(message, key);
     let ck = pedersen::setup::<G>(&mut rand::thread_rng(), 2084);
 
     let proof = prove::<G>(&mut transcript_p, &ck, message, &key);
 
-    let _ = verify::<G>(&mut transcript_v, &ck, key, &proof);
+    let _ = verify::<G>(&mut transcript_v, &ck, key, ctx, &proof);
 }
