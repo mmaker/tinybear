@@ -5,37 +5,23 @@ use transcript::IOPTranscript;
 
 use crate::{aes, helper, linalg, lookup, sigma, sumcheck};
 
-use crate::helper::{AesEMStatement, OFFSETS};
 use crate::pedersen::CommitmentKey;
 use crate::prover::TinybearProof;
 
 type ProofResult = Result<(), ()>;
 
-fn statement_generation(key: [u8; 16], ctx: [u8; 16]) -> AesEMStatement {
-    let round_keys = aes::keyschedule(&key);
-    // XXX. Needed only for AES-EM
-    // let output = aes::xor(ctx, round_keys[10]);
-    let output = ctx;
-
-    AesEMStatement { round_keys, output }
-}
 
 pub fn verify<G>(
     transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &CommitmentKey<G>,
-    k: [u8; 16],
+    message_commitment: &G,
+    round_keys_commitment: &G,
     ctx: [u8; 16],
-    msg_com: &G,
     proof: &TinybearProof<G>,
 ) -> ProofResult
 where
     G: CurveGroup,
 {
-    let statement = statement_generation(k, ctx);
-    let round_keys = statement.round_keys;
-    let kk = round_keys.iter().flatten().map(|x| [x&0xf, x>>4]).flatten().collect::<Vec<_>>();
-    let kk_com: G = crate::u8msm::u8msm(&ck.vec_G[helper::OFFSETS.round_keys * 2..], &kk);
-
     transcript
         .append_serializable_element(b"witness_com", &[proof.witness_com])
         .unwrap();
@@ -103,14 +89,14 @@ where
     // Verify fourth sigma: <h, tensor> = y
     let sumcheck_tensor_challenges = linalg::tensor(&sumcheck_challenges);
     let (v, constant_term) = helper::trace_to_needles_map(
-        &statement,
+        &ctx,
         &sumcheck_tensor_challenges,
         r_sbox,
         r_rj2,
         r_xor,
         r2_xor,
     );
-    let X = proof.witness_com + msg_com + kk_com;
+    let X = proof.witness_com + message_commitment + round_keys_commitment;
     let Y = proof.sigmas.Y_2 - ck.G * constant_term;
     sigma::lineval_verifier(transcript, &ck, &v, &X, &Y, &proof.sigmas.proof_f_tensor)?;
 
@@ -138,18 +124,21 @@ fn test_aes128_proof_correctness() {
         0xE7u8, 0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69,
         0x0C,
     ];
-    let ck = pedersen::setup::<G>(&mut rand::thread_rng(), OFFSETS.len*2);
+    let ck = pedersen::setup::<G>(&mut rand::thread_rng(), helper::OFFSETS.len*2);
 
     let msg = message
         .iter()
         .map(|x| [x & 0xf, x >> 4])
         .flatten()
         .collect::<Vec<_>>();
+    let round_keys = aes::keyschedule(&key);
+    let kk = round_keys.iter().flatten().map(|x| [x&0xf, x>>4]).flatten().collect::<Vec<_>>();
     // XXX. George: we need to make this more ergonomic;
     // it shoud be possible to concatenate the commitment keys.
-    let msg_com = u8msm::u8msm(&ck.vec_G[helper::OFFSETS.message * 2..], &msg);
+    let round_keys_commitment: G = crate::u8msm::u8msm(&ck.vec_G[helper::OFFSETS.round_keys * 2..], &kk);
+    let message_commitment = u8msm::u8msm(&ck.vec_G[helper::OFFSETS.message * 2..], &msg);
     let ctx = aes::aes128(message, key);
     let proof = prove::<G>(&mut transcript_p, &ck, message, &key);
-    let result = verify::<G>(&mut transcript_v, &ck, key, ctx, &msg_com, &proof);
+    let result = verify::<G>(&mut transcript_v, &ck, &message_commitment, &round_keys_commitment, ctx, &proof);
     assert!(result.is_ok());
 }

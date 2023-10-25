@@ -335,9 +335,8 @@ where
     ////////////////////// Final sigma: <f, tensor> = y_2 ////////////////////
 
     let y_2 = linalg::inner_product(&needles, &tensor_sumcheck_challenges);
-    let stmt = (&witness).into();
     let (f_challenge_vec, chal_constant_term) = helper::trace_to_needles_map(
-        &stmt,
+        &witness.output,
         &tensor_sumcheck_challenges,
         r_sbox,
         r_rj2,

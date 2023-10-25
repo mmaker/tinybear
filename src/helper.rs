@@ -164,12 +164,7 @@ fn lin_xor_m_col_map<F: Field>(dst: &mut [F], v: &[F], r: F, r2: F) {
     }
 }
 
-pub(crate) struct AesEMStatement {
-    pub round_keys: [[u8; 16]; 11],
-    pub output: [u8; 16],
-}
-
-fn lin_xor_addroundkey<F: Field>(stmt: &AesEMStatement, dst: &mut [F], v: &[F], r: F, r2: F) -> F {
+fn lin_xor_addroundkey<F: Field>(output: &[u8; 16], dst: &mut [F], v: &[F], r: F, r2: F) -> F {
     let mut constant_term = F::from(0);
 
     for round in 0..9 {
@@ -198,8 +193,8 @@ fn lin_xor_addroundkey<F: Field>(stmt: &AesEMStatement, dst: &mut [F], v: &[F], 
         // in AES-EM mode, we would have to add the message instead.
         // dst[(OFFSETS.message + i) * 2] += r * v_even;
         // dst[(OFFSETS.message + i) * 2 + 1] += r * v_odd;
-        constant_term += r2 * v_even * F::from(stmt.output[i] & 0xf);
-        constant_term += r2 * v_odd * F::from(stmt.output[i] >> 4);
+        constant_term += r2 * v_even * F::from(output[i] & 0xf);
+        constant_term += r2 * v_odd * F::from(output[i] >> 4);
     }
 
     // initial round
@@ -222,7 +217,7 @@ fn lin_xor_addroundkey<F: Field>(stmt: &AesEMStatement, dst: &mut [F], v: &[F], 
 
 /// Compute the linear map that maps the AES witness to the needles vector.
 pub(crate) fn trace_to_needles_map<F: Field>(
-    stmt: &AesEMStatement,
+    output: &[u8; 16],
     src: &[F],
     r_sbox: F,
     r_rj2: F,
@@ -237,19 +232,11 @@ pub(crate) fn trace_to_needles_map<F: Field>(
     offset += 16 * 9;
     lin_xor_m_col_map(&mut dst, &src[offset..], r_xor, r2_xor);
     offset += 16 * 9 * 4 * 2;
-    let constant_term = lin_xor_addroundkey(stmt, &mut dst, &src[offset..], r_xor, r2_xor);
+    let constant_term = lin_xor_addroundkey(output, &mut dst, &src[offset..], r_xor, r2_xor);
 
     (dst, constant_term)
 }
 
-impl From<&aes::Witness> for AesEMStatement {
-    fn from(value: &aes::Witness) -> Self {
-        AesEMStatement {
-            round_keys: value._keys,
-            output: value.output,
-        }
-    }
-}
 
 #[test]
 fn test_trace_to_needles_map() {
@@ -295,9 +282,8 @@ fn test_trace_to_needles_map() {
         .map(|x| F::from(x))
         .collect::<Vec<_>>();
 
-    let stmt = (&witness).into();
     let (needled_vector, constant_term) =
-        trace_to_needles_map(&stmt, &vector, r_sbox, r_rj2, r_xor, r2_xor);
+        trace_to_needles_map(&witness.output, &vector, r_sbox, r_rj2, r_xor, r2_xor);
     let expected = linalg::inner_product(&needled_vector, &trace) + constant_term;
     assert_eq!(got, expected);
 }
