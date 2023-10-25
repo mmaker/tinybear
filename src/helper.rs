@@ -237,7 +237,6 @@ pub(crate) fn trace_to_needles_map<F: Field>(
     (dst, constant_term)
 }
 
-
 #[test]
 fn test_trace_to_needles_map() {
     use crate::{linalg, prover};
@@ -273,7 +272,11 @@ fn test_trace_to_needles_map() {
 
     // these elements will be commited to a separate vector.
     let message = witness.message.iter().map(|x| [x & 0xf, x >> 4]).flatten();
-    let keys = round_keys.iter().flatten().map(|x| [x & 0xf, x >> 4]).flatten();
+    let keys = round_keys
+        .iter()
+        .flatten()
+        .map(|x| [x & 0xf, x >> 4])
+        .flatten();
 
     let trace = cipher_trace
         .into_iter()

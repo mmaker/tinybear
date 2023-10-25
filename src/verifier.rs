@@ -3,13 +3,12 @@ use ark_ec::CurveGroup;
 
 use transcript::IOPTranscript;
 
-use crate::{aes, helper, linalg, lookup, sigma, sumcheck};
+use crate::{helper, linalg, lookup, sigma, sumcheck};
 
 use crate::pedersen::CommitmentKey;
 use crate::prover::TinybearProof;
 
 type ProofResult = Result<(), ()>;
-
 
 pub fn verify<G>(
     transcript: &mut IOPTranscript<G::ScalarField>,
@@ -106,7 +105,7 @@ where
 #[test]
 fn test_aes128_proof_correctness() {
     use crate::prover::prove;
-    use crate::{pedersen, u8msm};
+    use crate::{aes, pedersen, u8msm};
 
     type G = ark_curve25519::EdwardsProjective;
 
@@ -124,7 +123,7 @@ fn test_aes128_proof_correctness() {
         0xE7u8, 0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69,
         0x0C,
     ];
-    let ck = pedersen::setup::<G>(&mut rand::thread_rng(), helper::OFFSETS.len*2);
+    let ck = pedersen::setup::<G>(&mut rand::thread_rng(), helper::OFFSETS.len * 2);
 
     let msg = message
         .iter()
@@ -132,13 +131,26 @@ fn test_aes128_proof_correctness() {
         .flatten()
         .collect::<Vec<_>>();
     let round_keys = aes::keyschedule(&key);
-    let kk = round_keys.iter().flatten().map(|x| [x&0xf, x>>4]).flatten().collect::<Vec<_>>();
+    let kk = round_keys
+        .iter()
+        .flatten()
+        .map(|x| [x & 0xf, x >> 4])
+        .flatten()
+        .collect::<Vec<_>>();
     // XXX. George: we need to make this more ergonomic;
     // it shoud be possible to concatenate the commitment keys.
-    let round_keys_commitment: G = crate::u8msm::u8msm(&ck.vec_G[helper::OFFSETS.round_keys * 2..], &kk);
+    let round_keys_commitment: G =
+        crate::u8msm::u8msm(&ck.vec_G[helper::OFFSETS.round_keys * 2..], &kk);
     let message_commitment = u8msm::u8msm(&ck.vec_G[helper::OFFSETS.message * 2..], &msg);
     let ctx = aes::aes128(message, key);
     let proof = prove::<G>(&mut transcript_p, &ck, message, &key);
-    let result = verify::<G>(&mut transcript_v, &ck, &message_commitment, &round_keys_commitment, ctx, &proof);
+    let result = verify::<G>(
+        &mut transcript_v,
+        &ck,
+        &message_commitment,
+        &round_keys_commitment,
+        ctx,
+        &proof,
+    );
     assert!(result.is_ok());
 }

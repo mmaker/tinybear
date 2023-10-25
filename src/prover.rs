@@ -343,14 +343,18 @@ where
         r_xor,
         r2_xor,
     );
-    let msg = message.iter().map(|&x| [x & 0xf, x >> 4]).flatten();
-    let round_keys = aes::keyschedule(&key);
-    let kk = round_keys.iter().flatten().map(|&x| [x & 0xf, x >> 4]).flatten();
     let v = witness_vector
         .iter()
         .copied()
-        .chain(msg)
-        .chain(kk)
+        .chain(message.iter().map(|&x| [x & 0xf, x >> 4]).flatten())
+        .chain(
+            witness
+                ._keys
+                .iter()
+                .flatten()
+                .map(|&x| [x & 0xf, x >> 4])
+                .flatten(),
+        )
         .map(|e| G::ScalarField::from(e))
         .collect::<Vec<_>>();
     assert_eq!(y_2 - chal_constant_term, {
