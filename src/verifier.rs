@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 use ark_ec::CurveGroup;
+use ark_ff::Field;
 
 use transcript::IOPTranscript;
 
@@ -58,14 +59,9 @@ where
     let (_haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_rj2, c);
 
     // Sumcheck
+    let sumcheck_claim_s = G::ScalarField::from(helper::NEEDLES_LEN as i32) - c * proof.y;
     let (sumcheck_challenges, tensorcheck_claim) =
-        sumcheck::reduce(transcript, &proof.sumcheck_messages, proof.sumcheck_claim_s);
-
-    // Verify sumcheck claim
-    assert_eq!(
-        proof.sumcheck_claim_s,
-        G::ScalarField::from(helper::NEEDLES_LEN as i32) - c * proof.y
-    );
+        sumcheck::reduce(transcript, &proof.sumcheck_messages, sumcheck_claim_s);
 
     // Verify sumcheck tensorcheck claim (random evaluation)
     // using yet unverified y_1 and y_2
@@ -120,8 +116,8 @@ where
 
 #[test]
 fn test_aes128_proof_correctness() {
-    use crate::{pedersen, u8msm};
     use crate::prover::prove;
+    use crate::{pedersen, u8msm};
 
     type G = ark_curve25519::EdwardsProjective;
 
@@ -141,10 +137,14 @@ fn test_aes128_proof_correctness() {
     ];
     let ck = pedersen::setup::<G>(&mut rand::thread_rng(), 2084);
 
-    let msg = message.iter().map(|x| [x & 0xf, x>>4]).flatten().collect::<Vec<_>>();
+    let msg = message
+        .iter()
+        .map(|x| [x & 0xf, x >> 4])
+        .flatten()
+        .collect::<Vec<_>>();
     // XXX. George: we need to make this more ergonomic;
     // it shoud be possible to concatenate the commitment keys.
-    let msg_com = u8msm::u8msm(&ck.vec_G[helper::OFFSETS.message*2..], &msg);
+    let msg_com = u8msm::u8msm(&ck.vec_G[helper::OFFSETS.message * 2..], &msg);
     let ctx = aes::aes128(message, key);
     let proof = prove::<G>(&mut transcript_p, &ck, message, &key);
     let result = verify::<G>(&mut transcript_v, &ck, key, ctx, &msg_com, &proof);

@@ -39,15 +39,14 @@ pub struct TinybearProof<G: CurveGroup> {
 
     pub inverse_needles_com: G, // com(g)
     pub Y: G,                   // com(y)
-    pub y: G::ScalarField,      // XXX. TO REMOVE
+    pub y: G::ScalarField,      // <g, 1>
+    // also satisfies: <q,f> = s = |f| - c * y
 
     // we actually know the len of this thing,
     // it's going to be 12 for aes128 with 4-bit xor
     // it's going to be 17 for 8-bit table xor
     // XXX
     pub sumcheck_messages: Vec<[G::ScalarField; 2]>,
-    // <q,f> = s = |f| - c * y
-    pub sumcheck_claim_s: G::ScalarField, // XXX. TO REMOVE
 
     // Proofs and results for the linear evaluation proofs
     pub sigmas: LinearEvaluationProofs<G>,
@@ -264,8 +263,6 @@ where
 
     // pour sumcheck messages into the proof
     proof.sumcheck_messages = sumcheck_messages;
-    // add inner product result to the proof: <f, q> = s = |f| - c * y
-    proof.sumcheck_claim_s = G::ScalarField::from(needles.len() as i32) - c * y;
 
     //////////////////////////////// Sanity checks ////////////////////////////////////////
 
@@ -280,12 +277,6 @@ where
             .map(|(&a, &b)| a * G::ScalarField::from(b))
             .sum::<G::ScalarField>(),
         inverse_needles.iter().sum::<G::ScalarField>()
-    );
-
-    // check that: <q, f> = |f| - c * y
-    assert_eq!(
-        proof.sumcheck_claim_s,
-        G::ScalarField::from(needles.len() as i32) - c * y
     );
 
     // check other linear evaluation scalar products
@@ -367,7 +358,7 @@ where
     proof.sigmas.proof_f_tensor =
         sigma::lineval_prover(rng, transcript, ck, &v, W_opening, iota, &f_challenge_vec);
 
-        proof.sigmas.Y_2 = Y_2;
+    proof.sigmas.Y_2 = Y_2;
 
     // proof.sigmas.sigma_proof_y
     proof
