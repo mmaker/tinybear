@@ -147,7 +147,6 @@ pub(crate) fn keyschedule(key: &[u8; 16]) -> [[u8; 16]; 11] {
     unsafe { std::mem::transmute(scheduled) }
 }
 
-
 fn aes_round(mut state: [u8; 16], round_key: [u8; 16]) -> [u8; 16] {
     // shiftrows before sbox so we can lookup SBOX and M_COL_HELP together
     state = shiftrows(state);
@@ -155,7 +154,6 @@ fn aes_round(mut state: [u8; 16], round_key: [u8; 16]) -> [u8; 16] {
     state = mixcolumns(state);
     xor(state, round_key)
 }
-
 
 /// Naive implementation of AES-128
 pub(crate) fn aes128(message: [u8; 16], key: [u8; 16]) -> [u8; 16] {

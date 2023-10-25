@@ -9,12 +9,14 @@ use rand::{CryptoRng, RngCore};
 pub struct CommitmentKey<G: CurveGroup> {
     pub vec_G: Vec<G::Affine>,
     pub H: G::Affine,
+    pub G: G::Affine,
 }
 
 pub fn setup<G: CurveGroup>(csrng: &mut (impl RngCore + CryptoRng), d: usize) -> CommitmentKey<G> {
     CommitmentKey {
         vec_G: (0..d).map(|_| G::Affine::rand(csrng)).collect(),
         H: G::Affine::rand(csrng),
+        G: G::Affine::rand(csrng),
     }
 }
 
@@ -29,7 +31,11 @@ pub fn commit_hiding<G: CurveGroup>(
     scalars: &[G::ScalarField],
 ) -> (G, G::ScalarField) {
     let blinder = G::ScalarField::rand(csrng);
-    let C = G::msm_unchecked(&ck.vec_G, &scalars) + ck.H.mul(blinder);
+    let C = if scalars.len() == 1 {
+        ck.G.mul(scalars[0]) + ck.H.mul(blinder)
+    } else {
+        G::msm_unchecked(&ck.vec_G, &scalars) + ck.H.mul(blinder)
+    };
     (C, blinder)
 }
 
@@ -43,6 +49,10 @@ pub fn commit_hiding_u8<G: CurveGroup>(
     u8scalars: &[u8],
 ) -> (G, G::ScalarField) {
     let blinder = G::ScalarField::rand(csrng);
-    let C = u8msm::u8msm::<G>(&ck.vec_G, u8scalars) + ck.H.mul(blinder);
+    let C = if u8scalars.len() == 1 {
+        ck.G.mul(G::ScalarField::from(u8scalars[0])) + ck.H.mul(blinder)
+    } else {
+        u8msm::u8msm::<G>(&ck.vec_G, u8scalars) + ck.H.mul(blinder)
+    };
     (C, blinder)
 }

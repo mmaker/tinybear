@@ -82,7 +82,7 @@ pub fn lineval_verifier<G: CurveGroup>(
     Y: &G,
 
     proof: &SigmaProof<G>,
-) -> bool {
+) -> Result<(), ()> {
     transcript
         .append_serializable_element(b"k_gg", &[proof.K_1, proof.K_2])
         .unwrap();
@@ -90,19 +90,8 @@ pub fn lineval_verifier<G: CurveGroup>(
     // Get challenges from verifier
     let c = transcript.get_and_append_challenge(b"c").unwrap();
 
-    // Check (1)
     let z_i_G_i = G::msm_unchecked(&ck.vec_G, &proof.vec_z);
-    assert_eq!(
-        z_i_G_i + ck.H.mul(proof.zeta_1) - proof.K_1 - X.mul(c),
-        G::zero()
-    );
-
-    // Check (2)
-    let z_i_a_i_G_i = ck.vec_G[0].mul(&linalg::inner_product(&proof.vec_z, &vec_a));
-    assert_eq!(
-        z_i_a_i_G_i + ck.H.mul(proof.zeta_2) - proof.K_2 - Y.mul(c),
-        G::zero()
-    );
+    let z_i_a_i_G_i = ck.G.mul(&linalg::inner_product(&proof.vec_z, &vec_a));
 
     transcript
         .append_serializable_element(b"response", &[proof.vec_z.clone()])
@@ -110,9 +99,13 @@ pub fn lineval_verifier<G: CurveGroup>(
     transcript
         .append_serializable_element(b"response2", &[proof.zeta_1, proof.zeta_2])
         .unwrap();
-
-    // XXX
-    true
+    if z_i_G_i + ck.H.mul(proof.zeta_1) == proof.K_1 + X.mul(c)
+        && z_i_a_i_G_i + ck.H.mul(proof.zeta_2) == proof.K_2 + Y.mul(c)
+    {
+        Ok(())
+    } else {
+        Err(())
+    }
 }
 
 /// Check proof that <vec_x, vec_a> = y
@@ -151,5 +144,5 @@ fn test_sigma_end_to_end() {
     // Let's prove!
     let sigma_proof = lineval_prover(rng, &mut transcript_p, &ck, &vec_x, phi, psi, &vec_a);
 
-    lineval_verifier(&mut transcript_v, &ck, &vec_a, &X, &Y, &sigma_proof);
+    assert!(lineval_verifier(&mut transcript_v, &ck, &vec_a, &X, &Y, &sigma_proof).is_ok());
 }

@@ -3,44 +3,39 @@ use ark_ec::CurveGroup;
 
 use transcript::IOPTranscript;
 
-use crate::{aes, linalg, lookup, sigma, sumcheck};
+use crate::{aes, helper, linalg, lookup, sigma, sumcheck, u8msm};
 
-use crate::pedersen::CommitmentKey;
+use crate::helper::{AesEMStatement, OFFSETS};
+use crate::pedersen::{CommitmentKey, commit_u8};
 use crate::prover::TinybearProof;
-use crate::helper::AesEMStatement;
 
-
-pub struct InvalidProof;
-type ProofResult = Result<(), InvalidProof>;
+type ProofResult = Result<(), ()>;
 
 fn statement_generation(key: [u8; 16], ctx: [u8; 16]) -> AesEMStatement {
     let round_keys = aes::keyschedule(&key);
-    let output = aes::xor(ctx, round_keys[10]);
+    // let output = aes::xor(ctx, round_keys[10]);
+    let output = ctx;
 
-    AesEMStatement {
-        round_keys,
-        output,
-    }
-
+    AesEMStatement { round_keys, output }
 }
 
-#[allow(unused)] // XXX during dev
 pub fn verify<G>(
     transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &CommitmentKey<G>,
     k: [u8; 16],
     ctx: [u8; 16],
+    msg_com: &G,
     proof: &TinybearProof<G>,
 ) -> ProofResult
 where
     G: CurveGroup,
 {
-    // Step 2: Lookup verifier challenges
+    let statement = statement_generation(k, ctx);
     transcript
         .append_serializable_element(b"witness_com", &[proof.witness_com])
         .unwrap();
 
-    let r_mul = transcript.get_and_append_challenge(b"r_mul").unwrap();
+    let r_rj2 = transcript.get_and_append_challenge(b"r_mul").unwrap();
     let r_sbox = transcript.get_and_append_challenge(b"r_sbox").unwrap();
     let r_xor = transcript.get_and_append_challenge(b"r_xor").unwrap();
     let r2_xor = transcript.get_and_append_challenge(b"r2_xor").unwrap();
@@ -59,22 +54,23 @@ where
         .unwrap();
 
     // Compute h and t
-    let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_mul, c);
+    let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_rj2, c);
 
-    // Step 5: Sumcheck
+    // Sumcheck
     let (sumcheck_challenges, tensorcheck_claim) =
         sumcheck::reduce(transcript, &proof.sumcheck_messages, proof.sumcheck_claim_s);
 
     // Verify sumcheck claim
-    // XXX !!! XXX fix after blinders
-    // assert_eq!(proof.sumcheck_claim_s , G::ScalarField::from(proof.needles_len as i32) - c * proof.y);
+    assert_eq!(
+        proof.sumcheck_claim_s,
+        G::ScalarField::from(proof.needles_len as i32) - c * proof.y
+    );
 
     // Verify sumcheck tensorcheck claim (random evaluation)
     // using yet unverified y_1 and y_2
-    // XXX !!! XXX fix after blinders
-    //assert_eq!(tensorcheck_claim, proof.sigmas.y_1 * proof.sigmas.y_2);
+    // assert_eq!(tensorcheck_claim, proof.sigmas.y_1 * proof.sigmas.y_2);
 
-    // Step 6: Linear evaluations
+    // Linear evaluations
     // time to verify that g, m and y are correctly provided by the prover
 
     // // Verify first sigma: <m, h> = y
@@ -85,7 +81,7 @@ where
         &proof.freqs_com,
         &proof.Y,
         &proof.sigmas.proof_m_h,
-    );
+    )?;
 
     // Verify merged scalar product: <g, tensor + z> = y_1 + z * y
 
@@ -102,18 +98,27 @@ where
         &proof.inverse_needles_com,
         &Y_1_z_Y,
         &proof.sigmas.proof_q_1_tensor,
-    );
+    )?;
 
     // Verify fourth sigma: <h, tensor> = y
-    // XXX
-    // let morphism = tensor(&sumcheck_challenges);
-    // let morphism_witness = challenge_for_witness(&morphism, r_sbox, r_mul, r_xor, r2_xor);
+    let sumcheck_tensor_challenges = linalg::tensor(&sumcheck_challenges);
+    let (v, constant_term) = helper::trace_to_needles_map(
+        &statement,
+        &sumcheck_tensor_challenges,
+        r_sbox,
+        r_rj2,
+        r_xor,
+        r2_xor,
+    );
+    let X = proof.witness_com + msg_com;
+    let Y = proof.sigmas.Y_2 - ck.G * constant_term;
+    sigma::lineval_verifier(transcript, &ck, &v, &X, &Y, &proof.sigmas.proof_f_tensor)?;
 
-    Err(InvalidProof)
+    Ok(())
 }
 
 #[test]
-fn test_end_to_end() {
+fn test_aes128_proof_correctness() {
     use crate::pedersen;
     use crate::prover::prove;
 
@@ -133,10 +138,12 @@ fn test_end_to_end() {
         0xE7u8, 0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69,
         0x0C,
     ];
-    let ctx = aes::aes128(message, key);
     let ck = pedersen::setup::<G>(&mut rand::thread_rng(), 2084);
 
+    let msg = message.iter().map(|x| [x & 0xf, x>>4]).flatten().collect::<Vec<_>>();
+    let msg_com = u8msm::u8msm(&ck.vec_G[OFFSETS.message*2..], &msg);
+    let ctx = aes::aes128(message, key);
     let proof = prove::<G>(&mut transcript_p, &ck, message, &key);
-
-    let _ = verify::<G>(&mut transcript_v, &ck, key, ctx, &proof);
+    let result = verify::<G>(&mut transcript_v, &ck, key, ctx, &msg_com, &proof);
+    assert!(result.is_ok());
 }

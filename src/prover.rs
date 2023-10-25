@@ -22,10 +22,12 @@ pub struct LinearEvaluationProofs<G: CurveGroup> {
     // com(y_1)
     pub Y_1: G,
 
-    // Proof and result for <f, tensor> = y_2
-    pub sigma_proof_f_tensor: SigmaProof<G>,
+    // Proof and result for <f, tensor> = <w, A tensor> =  y_2
+    pub proof_f_tensor: SigmaProof<G>,
     // com(y_2)
     pub Y_2: G,
+
+    pub proof_y: SigmaProof<G>,
 }
 
 #[derive(Default, CanonicalSerialize)]
@@ -38,6 +40,7 @@ pub struct TinybearProof<G: CurveGroup> {
     pub inverse_needles_com: G, // com(g)
     pub needles_len: usize,     // |f|
     pub Y: G,                   // com(y)
+    pub y: G::ScalarField,      // XXX. TO REMOVE
 
     // we actually know the len of this thing,
     // it's going to be 12 for aes128 with 4-bit xor
@@ -45,7 +48,7 @@ pub struct TinybearProof<G: CurveGroup> {
     // XXX
     pub sumcheck_messages: Vec<[G::ScalarField; 2]>,
     // <q,f> = s = |f| - c * y
-    pub sumcheck_claim_s: G::ScalarField,
+    pub sumcheck_claim_s: G::ScalarField, // XXX. TO REMOVE
 
     // Proofs and results for the linear evaluation proofs
     pub sigmas: LinearEvaluationProofs<G>,
@@ -95,7 +98,7 @@ fn get_xor_witness(witness: &aes::Witness) -> Vec<(u8, u8, u8)> {
     // first round xor
     {
         let xs = witness.message.iter().copied();
-        let ys = witness._keys.iter().take(16).flatten().copied();
+        // let ys = witness._keys.iter().take(16).flatten().copied();
         let zs = witness.start.iter().take(16).copied();
         // ys is the 0th round key
         let new_witness = xs.zip(zs).map(|(x, z)| (x, x ^ z, z));
@@ -197,10 +200,10 @@ where
     // commit to trace of the program.
     // TIME: ~3-4ms [outdated]
     let witness_vector = helper::vectorize_witness(&witness);
-    let (witness_com, omega) = pedersen::commit_hiding_u8(rng, &ck, &witness_vector);
+    let (W, W_opening) = pedersen::commit_hiding_u8(rng, &ck, &witness_vector);
 
     // Send W
-    proof.witness_com = witness_com;
+    proof.witness_com = W;
     transcript
         .append_serializable_element(b"witness_com", &[proof.witness_com])
         .unwrap();
@@ -209,13 +212,13 @@ where
 
     // Get challenges for the lookup protocol.
     // one for sbox + mxcolhelp, sbox, two for xor
-    let r_mul = transcript.get_and_append_challenge(b"r_mul").unwrap();
+    let r_rj2 = transcript.get_and_append_challenge(b"r_mul").unwrap();
     let r_sbox = transcript.get_and_append_challenge(b"r_sbox").unwrap();
     let r_xor = transcript.get_and_append_challenge(b"r_xor").unwrap();
     let r2_xor = transcript.get_and_append_challenge(b"r2_xor").unwrap();
 
     let (needles, frequencies, frequencies_u8) =
-        compute_needles_and_frequencies(&witness, r_xor, r2_xor, r_sbox, r_mul);
+        compute_needles_and_frequencies(&witness, r_xor, r2_xor, r_sbox, r_rj2);
 
     // Commit to m (using mu as the blinder) and send it over
     let (freqs_com, mu) = pedersen::commit_hiding_u8(rng, ck, &frequencies_u8);
@@ -241,6 +244,8 @@ where
     // Send (Q,Y)
     proof.inverse_needles_com = inverse_needles_com;
     proof.Y = Y;
+    proof.y = y; // XXX REMOVE
+
     proof.needles_len = needles.len();
     transcript
         .append_serializable_element(b"Q", &[proof.inverse_needles_com])
@@ -250,7 +255,7 @@ where
         .unwrap();
 
     // Finally compute h and t
-    let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_mul, c);
+    let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_rj2, c);
 
     ////////////////////////////// Sumcheck  //////////////////////////////
 
@@ -268,9 +273,7 @@ where
     // Sanity check: check that the witness is indeed valid
     // sum_i q_i  = sum_i f_i
     assert_eq!(inverse_haystack.len(), frequencies_u8.len());
-    for x in &needles {
-        assert!(haystack.contains(x))
-    }
+    assert!(needles.iter().all(|x| haystack.contains(x)));
     assert_eq!(
         inverse_haystack
             .iter()
@@ -312,14 +315,16 @@ where
     // into <g, tensor + z> = y_1 + z * y
 
     // Public part (evaluation challenge) of tensor relation: ⦻(1, rho_j)
-    let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
+    let tensor_sumcheck_challenges = linalg::tensor(&sumcheck_challenges);
 
     let z = transcript.get_and_append_challenge(b"bc").unwrap();
-    let vec_tensor_z: Vec<G::ScalarField> =
-        tensor_evaluation_point.iter().map(|t| *t + z).collect();
+    let vec_tensor_z = tensor_sumcheck_challenges
+        .iter()
+        .map(|t| *t + z)
+        .collect::<Vec<_>>();
 
     // Compute partial result and commit to it
-    let y_1 = linalg::inner_product(&inverse_needles, &tensor_evaluation_point);
+    let y_1 = linalg::inner_product(&inverse_needles, &tensor_sumcheck_challenges);
     let (Y_1, epsilon) = pedersen::commit_hiding(rng, &ck, &[y_1]);
 
     // The blinder of the commitment `Y_1 + z * Y` for use in the sigma below
@@ -339,20 +344,33 @@ where
 
     ////////////////////// Final sigma: <f, tensor> = y_2 ////////////////////
 
-    let y_2 = linalg::inner_product(&needles, &tensor_evaluation_point);
-    let (Y_2, _iota) = pedersen::commit_hiding(rng, &ck, &[y_2]);
-    // XXX need to figure out what blinder to put for needles below instead of theta
-    proof.sigmas.sigma_proof_f_tensor = sigma::lineval_prover(
-        rng,
-        transcript,
-        ck,
-        &needles,
-        theta,
-        epsilon,
-        &tensor_evaluation_point,
+    let y_2 = linalg::inner_product(&needles, &tensor_sumcheck_challenges);
+    let stmt = (&witness).into();
+    let (f_challenge_vec, chal_constant_term) = helper::trace_to_needles_map(
+        &stmt,
+        &tensor_sumcheck_challenges,
+        r_sbox,
+        r_rj2,
+        r_xor,
+        r2_xor,
     );
-    proof.sigmas.Y_2 = Y_2;
+    let msg = message.iter().map(|&x| [x & 0xf, x >> 4]).flatten();
+    let v = witness_vector
+        .iter()
+        .copied()
+        .chain(msg)
+        .map(|e| G::ScalarField::from(e))
+        .collect::<Vec<_>>();
+    assert_eq!(y_2 - chal_constant_term, {
+        linalg::inner_product(&f_challenge_vec, &v)
+    });
+    let (Y_2, iota) = pedersen::commit_hiding(rng, &ck, &[y_2]);
+    proof.sigmas.proof_f_tensor =
+        sigma::lineval_prover(rng, transcript, ck, &v, W_opening, iota, &f_challenge_vec);
 
+        proof.sigmas.Y_2 = Y_2;
+
+    // proof.sigmas.sigma_proof_y
     proof
 }
 

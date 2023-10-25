@@ -1,5 +1,4 @@
-use crate::aes::{self, Witness};
-
+use crate::aes;
 use ark_ff::Field;
 
 #[derive(Default)]
@@ -23,6 +22,9 @@ pub(super) struct AesWitnessRegions {
 /// +--------------+
 /// |   .message   |
 /// +--------------+
+/// |  ?.round_key |
+/// +--------------+
+///
 /// ```
 ///
 /// where:
@@ -158,7 +160,7 @@ pub(crate) struct AesEMStatement {
     pub output: [u8; 16],
 }
 
-fn lin_xor_addroundkey<F: Field>(stmt: AesEMStatement, dst: &mut [F], v: &[F], r: F, r2: F) -> F {
+fn lin_xor_addroundkey<F: Field>(stmt: &AesEMStatement, dst: &mut [F], v: &[F], r: F, r2: F) -> F {
     let mut constant_term = F::from(0);
 
     for round in 0..9 {
@@ -184,29 +186,27 @@ fn lin_xor_addroundkey<F: Field>(stmt: AesEMStatement, dst: &mut [F], v: &[F], r
         let v_odd = v[pos * 2 + 1];
         dst[(OFFSETS.s_box + pos) * 2] += v_even;
         dst[(OFFSETS.s_box + pos) * 2 + 1] += v_odd;
-        // final round key missing
-        // dst[(OFFSETS.message + i) * 2] += r * v_even;
-        // dst[(OFFSETS.message + i) * 2 + 1] += r * v_odd;
         constant_term += r * v_even * F::from(stmt.round_keys[10][i] & 0xf);
         constant_term += r * v_odd * F::from(stmt.round_keys[10][i] >> 4);
-        // output missing
+        // in AES-EM mode, we would have to add the message instead.
+        // dst[(OFFSETS.message + i) * 2] += r * v_even;
+        // dst[(OFFSETS.message + i) * 2 + 1] += r * v_odd;
         constant_term += r2 * v_even * F::from(stmt.output[i] & 0xf);
         constant_term += r2 * v_odd * F::from(stmt.output[i] >> 4);
     }
 
-    // initial round is missing
+    // initial round
     for i in 0..16 {
         let pos = 16 * 10 + i;
         let v_even = v[pos * 2];
         let v_odd = v[pos * 2 + 1];
-        // message missing
+        // message
         dst[(OFFSETS.message + i) * 2] += v_even;
         dst[(OFFSETS.message + i) * 2 + 1] += v_odd;
-
-        // initial round key missing
+        // initial round key
         constant_term += r * v_even * F::from(stmt.round_keys[0][i] & 0xf);
         constant_term += r * v_odd * F::from(stmt.round_keys[0][i] >> 4);
-
+        //
         dst[(OFFSETS.start + i) * 2] += r2 * v_even;
         dst[(OFFSETS.start + i) * 2 + 1] += r2 * v_odd;
     }
@@ -214,8 +214,8 @@ fn lin_xor_addroundkey<F: Field>(stmt: AesEMStatement, dst: &mut [F], v: &[F], r
 }
 
 /// Compute the linear map that maps the AES witness to the needles vector.
-fn trace_to_needles_map<F: Field>(
-    stmt: AesEMStatement,
+pub(crate) fn trace_to_needles_map<F: Field>(
+    stmt: &AesEMStatement,
     src: &[F],
     r_sbox: F,
     r_rj2: F,
@@ -235,8 +235,8 @@ fn trace_to_needles_map<F: Field>(
     (dst, constant_term)
 }
 
-impl From<&Witness> for AesEMStatement {
-    fn from(value: &Witness) -> Self {
+impl From<&aes::Witness> for AesEMStatement {
+    fn from(value: &aes::Witness) -> Self {
         AesEMStatement {
             round_keys: value._keys,
             output: value.output,
@@ -261,11 +261,9 @@ fn test_trace_to_needles_map() {
         0x0C,
     ];
     let witness = aes::aes128_trace(message, key);
-    let mut vector = vec![F::from(0); OFFSETS.cipher_len * 2];
-
-    for i in 0..vector.len() {
-        vector[i] = F::rand(rng);
-    }
+    // actual length needed is: ceil(log(OFFSETS.cipher_len * 2))
+    let challenges = (0..11).map(|_| F::rand(rng)).collect::<Vec<_>>();
+    let vector = linalg::tensor(&challenges);
 
     let r_xor = F::rand(rng);
     let r2_xor = F::rand(rng);
@@ -288,7 +286,7 @@ fn test_trace_to_needles_map() {
 
     let stmt = (&witness).into();
     let (needled_vector, constant_term) =
-        trace_to_needles_map(stmt, &vector, r_sbox, r_rj2, r_xor, r2_xor);
+        trace_to_needles_map(&stmt, &vector, r_sbox, r_rj2, r_xor, r2_xor);
     let expected = linalg::inner_product(&needled_vector, &trace) + constant_term;
     assert_eq!(got, expected);
 }
