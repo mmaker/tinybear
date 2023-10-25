@@ -38,7 +38,6 @@ pub struct TinybearProof<G: CurveGroup> {
     pub freqs_com: G, // com(m)
 
     pub inverse_needles_com: G, // com(g)
-    pub needles_len: usize,     // |f|
     pub Y: G,                   // com(y)
     pub y: G::ScalarField,      // XXX. TO REMOVE
 
@@ -178,6 +177,7 @@ pub fn compute_needles_and_frequencies<F: Field>(
         .map(|x| F::from(*x))
         .collect::<Vec<_>>();
 
+    assert_eq!(needles.len(), helper::NEEDLES_LEN);
     (needles, frequencies, frequencies_u8)
 }
 
@@ -246,9 +246,6 @@ where
     proof.Y = Y;
     proof.y = y; // XXX REMOVE
 
-    proof.needles_len = needles.len();
-    println!("{}", proof.needles_len);
-    println!("{}", helper::OFFSETS.message);
     transcript
         .append_serializable_element(b"Q", &[proof.inverse_needles_com])
         .unwrap();

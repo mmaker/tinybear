@@ -10,6 +10,13 @@ pub(super) struct AesWitnessRegions {
     pub cipher_len: usize,
 }
 
+pub const NEEDLES_LEN: usize =
+    16 * 10 + // s_box
+    16 * 9 + // rj2
+    16 * 9 * 5 * 2 + // m_col xor's
+    16 * 2 * 2 // addroundkey first and last
+;
+
 /// The witness is structured as follows:
 ///
 /// ```text
@@ -21,8 +28,6 @@ pub(super) struct AesWitnessRegions {
 /// |   .m_col     |
 /// +--------------+
 /// |   .message   |
-/// +--------------+
-/// |  ?.round_key |
 /// +--------------+
 ///
 /// ```

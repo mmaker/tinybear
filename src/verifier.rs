@@ -64,7 +64,7 @@ where
     // Verify sumcheck claim
     assert_eq!(
         proof.sumcheck_claim_s,
-        G::ScalarField::from(proof.needles_len as i32) - c * proof.y
+        G::ScalarField::from(helper::NEEDLES_LEN as i32) - c * proof.y
     );
 
     // Verify sumcheck tensorcheck claim (random evaluation)
