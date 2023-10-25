@@ -78,7 +78,7 @@ pub fn compute_haystack<F: Field>(
     r_xor: F,
     r2_xor: F,
     r_sbox: F,
-    r_mul: F,
+    r_rj2: F,
     lookup_challenge: F,
 ) -> (Vec<F>, Vec<F>) {
     // Start computing vector of inverse_haystack
@@ -102,7 +102,7 @@ pub fn compute_haystack<F: Field>(
         .map(|i| {
             let x = i;
             let y = aes::M_COL_HELP[x as usize];
-            F::from(x) + r_mul * F::from(y)
+            F::from(x) + r_rj2 * F::from(y)
         })
         .collect::<Vec<_>>();
 

@@ -139,7 +139,7 @@ pub fn compute_needles_and_frequencies<F: Field>(
     r_xor: F,
     r2_xor: F,
     r_sbox: F,
-    r_mul: F,
+    r_rj2: F,
 ) -> (Vec<F>, Vec<F>, Vec<u8>) {
     // Generate the witness.
     // witness_s_box = [(a, sbox(a)), (b, sbox(b)), ...]
@@ -155,7 +155,7 @@ pub fn compute_needles_and_frequencies<F: Field>(
 
     // s_box_needles = [x_1 + r * sbox[x_1], x_2 + r * sbox[x_2], ...]
     let s_box_needles = lookup::compute_u8_needles(&witness_s_box, r_sbox);
-    let r2j_needles = lookup::compute_u8_needles(&witness_r2j, r_mul);
+    let r2j_needles = lookup::compute_u8_needles(&witness_r2j, r_rj2);
 
     // ASN xor_needles = ??? 4 bit stuff
     let xor_needles = lookup::compute_u16_needles(&witness_xor, [r_xor, r2_xor]);
@@ -212,7 +212,7 @@ where
 
     // Get challenges for the lookup protocol.
     // one for sbox + mxcolhelp, sbox, two for xor
-    let r_rj2 = transcript.get_and_append_challenge(b"r_mul").unwrap();
+    let r_rj2 = transcript.get_and_append_challenge(b"r_rj2").unwrap();
     let r_sbox = transcript.get_and_append_challenge(b"r_sbox").unwrap();
     let r_xor = transcript.get_and_append_challenge(b"r_xor").unwrap();
     let r2_xor = transcript.get_and_append_challenge(b"r2_xor").unwrap();
@@ -247,6 +247,8 @@ where
     proof.y = y; // XXX REMOVE
 
     proof.needles_len = needles.len();
+    println!("{}", proof.needles_len);
+    println!("{}", helper::OFFSETS.message);
     transcript
         .append_serializable_element(b"Q", &[proof.inverse_needles_com])
         .unwrap();
