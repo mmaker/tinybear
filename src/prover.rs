@@ -18,7 +18,6 @@ pub struct LinearEvaluationProofs<G: CurveGroup> {
     pub Y_1: G,
     // com(y_2)
     pub Y_2: G,
-
     // Proof for <m, h> = y
     pub proof_m_h: SigmaProof<G>,
     // Proof and partial result for merged scalar product: <g, tensor + c> = y_1 + c * y
@@ -153,7 +152,7 @@ pub fn compute_needles_and_frequencies<F: Field>(
     // To do so, we build the frequency vectors.
     // Frequencies are organized in this way
     // | 4-bit xor | sbox | r2j |
-    // |  256      | 256  | 256       |
+    // |  256      | 256  | 256 |
     // First, group witness by lookup table.
     let mut frequencies_u8 = vec![0u8; 256 * 3];
     lookup::count_u16_frequencies(&mut frequencies_u8[0..256], &witness_xor);

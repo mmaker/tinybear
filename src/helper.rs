@@ -28,9 +28,9 @@ pub const NEEDLES_LEN: usize =
 /// ---------------+
 /// |  .m_col      |
 /// +--------------+
-/// |  .message    |
+/// |  .message    |  <-- from outside
 /// +--------------+
-/// |  .round_keys |
+/// |  .round_keys |  <-- from outside
 /// +--------------+
 /// ```
 ///
@@ -48,10 +48,8 @@ pub const NEEDLES_LEN: usize =
 ///   `m_col[1]` up to `m_col[4]` denotes the state at the end of each xor operation.
 ///    Therefore, it has length 16 * 9 * 5 = 720.
 ///    (Note: the final AddRoundKey operation is not included involves `.start` and `.m_col[4]`)
-/// - `.message`
-///  denotes the message.
-///
-/// The final witness length is therefore 160 + 160 + 720 = 1040.
+/// - `.message` and `.round_keys`
+///  denote message and round keys, respectively. They are given as part of the statement.
 pub(super) const OFFSETS: AesWitnessRegions = {
     let start = 0;
     let s_box = start + 16 * 10;
