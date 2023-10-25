@@ -1,3 +1,4 @@
+use ark_ff::AdditiveGroup;
 use ark_ff::PrimeField;
 use transcript::IOPTranscript;
 
@@ -9,30 +10,35 @@ fn fold_inplace<F: PrimeField>(f: &mut Vec<F>, r: F) {
     f.drain(half..);
 }
 
-fn round_message<F: PrimeField>(f: &mut Vec<F>, g: &mut Vec<F>) -> [F; 2] {
-    let mut a = F::zero();
-    let mut b = F::zero();
-    let zero = F::zero();
+fn round_message<F, G>(f: &mut Vec<F>, g: &mut Vec<G>) -> [G; 2]
+where
+    F: PrimeField,
+    G: AdditiveGroup<Scalar = F>,
+{
+    let mut a = G::zero();
+    let mut b = G::zero();
+    let f_zero = F::zero();
+    let g_zero = G::zero();
 
     for (f_pair, g_pair) in f.chunks(2).zip(g.chunks(2)) {
         // The even part of the polynomial must always be unwrapped.
         let f_even = f_pair[0];
         let g_even = g_pair[0];
         // For the right part, we might obtain zero if the degree is not a multiple of 2.
-        let f_odd = f_pair.get(1).unwrap_or(&zero);
-        let g_odd = g_pair.get(1).unwrap_or(&zero);
+        let f_odd = f_pair.get(1).unwrap_or(&f_zero);
+        let g_odd = g_pair.get(1).unwrap_or(&g_zero);
         // Add to the partial sum
-        a += f_even * g_even;
-        b += f_even * g_odd + g_even * f_odd;
+        a += g_even * f_even;
+        b += *g_odd * f_even + g_even * f_odd;
     }
     [a, b]
 }
 
-pub fn reduce<F: PrimeField>(
+pub fn reduce<F: PrimeField, G: AdditiveGroup<Scalar = F>>(
     transcript: &mut IOPTranscript<F>,
-    messages: &[[F; 2]],
-    mut claim: F,
-) -> (Vec<F>, F) {
+    messages: &[[G; 2]],
+    mut claim: G,
+) -> (Vec<F>, G) {
     let mut challenges = Vec::with_capacity(messages.len());
     // reduce to a subclaim using the prover's messages.
     for &[a, b] in messages {
@@ -46,7 +52,7 @@ pub fn reduce<F: PrimeField>(
 
         let c = claim - a;
         // evaluate (a + bx + cx2) at r
-        claim = a + r * b + c * r.square();
+        claim = a + b * r + c * r.square();
     }
     (challenges, claim)
 }

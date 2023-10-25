@@ -31,13 +31,12 @@ pub struct LinearEvaluationProofs<G: CurveGroup> {
 #[derive(Default, CanonicalSerialize)]
 pub struct TinybearProof<G: CurveGroup> {
     pub witness_com: G,
-    pub freqs_com: G, // com(m)
-
+    pub freqs_com: G,           // com(m)
     pub inverse_needles_com: G, // com(g)
     pub Y: G,                   // com(y)
-    pub y: G::ScalarField,      // <g, 1>
-    // also satisfies: <q,f> = s = |f| - c * y
 
+    pub y: G::ScalarField, // <g, 1>
+    // also satisfies: <q,f> = s = |f| - c * y
     pub sumcheck_messages: Vec<[G::ScalarField; 2]>,
     // Proofs and results for the linear evaluation proofs
     pub sigmas: LinearEvaluationProofs<G>,
