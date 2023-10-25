@@ -7,7 +7,8 @@ pub(super) struct AesWitnessRegions {
     pub s_box: usize,
     pub m_col: [usize; 5],
     pub message: usize,
-    pub cipher_len: usize,
+    pub round_keys: usize,
+    pub len: usize,
 }
 
 pub const NEEDLES_LEN: usize =
@@ -21,15 +22,16 @@ pub const NEEDLES_LEN: usize =
 ///
 /// ```text
 /// +--------------+
-/// |   .start     |
+/// |  .start      |
 /// +--------------+
-/// |   .sbox      |
+/// |  .sbox       |
+/// ---------------+
+/// |  .m_col      |
 /// +--------------+
-/// |   .m_col     |
+/// |  .message    |
 /// +--------------+
-/// |   .message   |
+/// |  .round_keys |
 /// +--------------+
-///
 /// ```
 ///
 /// where:
@@ -65,13 +67,15 @@ pub(super) const OFFSETS: AesWitnessRegions = {
     ];
     // let addroundkey_len = 16 * 11;
     let message = m_col[4] + m_col_len;
+    let round_keys = message + 16;
 
     AesWitnessRegions {
         start,
         s_box,
         m_col,
         message,
-        cipher_len: message + 16,
+        round_keys,
+        len: round_keys + 16 * 11,
     }
 };
 
@@ -175,13 +179,11 @@ fn lin_xor_addroundkey<F: Field>(stmt: &AesEMStatement, dst: &mut [F], v: &[F], 
             let v_odd = v[pos * 2 + 1];
             dst[(OFFSETS.m_col[4] + pos) * 2] += v_even;
             dst[(OFFSETS.start + pos + 16) * 2] += r2 * v_even;
-            // round key is missing
-            constant_term += r * v_even * F::from(stmt.round_keys[round + 1][i] & 0xf);
+            dst[(OFFSETS.round_keys + pos + 16) * 2] += r * v_even;
 
             dst[(OFFSETS.m_col[4] + pos) * 2 + 1] += v_odd;
             dst[(OFFSETS.start + pos + 16) * 2 + 1] += r2 * v_odd;
-            // round key is missing
-            constant_term += r * v_odd * F::from(stmt.round_keys[round + 1][i] >> 4);
+            dst[(OFFSETS.round_keys + pos + 16) * 2 + 1] += r * v_odd;
         }
     }
     // final round
@@ -191,8 +193,8 @@ fn lin_xor_addroundkey<F: Field>(stmt: &AesEMStatement, dst: &mut [F], v: &[F], 
         let v_odd = v[pos * 2 + 1];
         dst[(OFFSETS.s_box + pos) * 2] += v_even;
         dst[(OFFSETS.s_box + pos) * 2 + 1] += v_odd;
-        constant_term += r * v_even * F::from(stmt.round_keys[10][i] & 0xf);
-        constant_term += r * v_odd * F::from(stmt.round_keys[10][i] >> 4);
+        dst[(OFFSETS.round_keys + pos + 16) * 2] += r * v_even;
+        dst[(OFFSETS.round_keys + pos + 16) * 2 + 1] += r * v_odd;
         // in AES-EM mode, we would have to add the message instead.
         // dst[(OFFSETS.message + i) * 2] += r * v_even;
         // dst[(OFFSETS.message + i) * 2 + 1] += r * v_odd;
@@ -209,9 +211,9 @@ fn lin_xor_addroundkey<F: Field>(stmt: &AesEMStatement, dst: &mut [F], v: &[F], 
         dst[(OFFSETS.message + i) * 2] += v_even;
         dst[(OFFSETS.message + i) * 2 + 1] += v_odd;
         // initial round key
-        constant_term += r * v_even * F::from(stmt.round_keys[0][i] & 0xf);
-        constant_term += r * v_odd * F::from(stmt.round_keys[0][i] >> 4);
-        //
+        dst[(OFFSETS.round_keys + i) * 2] += r * v_even;
+        dst[(OFFSETS.round_keys + i) * 2 + 1] += r * v_odd;
+        // .start
         dst[(OFFSETS.start + i) * 2] += r2 * v_even;
         dst[(OFFSETS.start + i) * 2 + 1] += r2 * v_odd;
     }
@@ -227,7 +229,7 @@ pub(crate) fn trace_to_needles_map<F: Field>(
     r_xor: F,
     r2_xor: F,
 ) -> (Vec<F>, F) {
-    let mut dst = vec![F::zero(); OFFSETS.cipher_len * 2];
+    let mut dst = vec![F::zero(); OFFSETS.len * 2];
     let mut offset = 0;
     lin_sbox_map(&mut dst, src, r_sbox);
     offset += 16 * 10;
@@ -280,12 +282,16 @@ fn test_trace_to_needles_map() {
     let got = linalg::inner_product(&needles, &vector);
 
     let cipher_trace = vectorize_witness(&witness);
+    let round_keys = aes::keyschedule(&key);
 
+    // these elements will be commited to a separate vector.
     let message = witness.message.iter().map(|x| [x & 0xf, x >> 4]).flatten();
+    let keys = round_keys.iter().flatten().map(|x| [x & 0xf, x >> 4]).flatten();
 
     let trace = cipher_trace
         .into_iter()
         .chain(message)
+        .chain(keys)
         .map(|x| F::from(x))
         .collect::<Vec<_>>();
 

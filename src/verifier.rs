@@ -1,12 +1,11 @@
 #![allow(non_snake_case)]
 use ark_ec::CurveGroup;
-use ark_ff::Field;
 
 use transcript::IOPTranscript;
 
 use crate::{aes, helper, linalg, lookup, sigma, sumcheck};
 
-use crate::helper::AesEMStatement;
+use crate::helper::{AesEMStatement, OFFSETS};
 use crate::pedersen::CommitmentKey;
 use crate::prover::TinybearProof;
 
@@ -33,6 +32,10 @@ where
     G: CurveGroup,
 {
     let statement = statement_generation(k, ctx);
+    let round_keys = statement.round_keys;
+    let kk = round_keys.iter().flatten().map(|x| [x&0xf, x>>4]).flatten().collect::<Vec<_>>();
+    let kk_com: G = crate::u8msm::u8msm(&ck.vec_G[helper::OFFSETS.round_keys * 2..], &kk);
+
     transcript
         .append_serializable_element(b"witness_com", &[proof.witness_com])
         .unwrap();
@@ -107,7 +110,7 @@ where
         r_xor,
         r2_xor,
     );
-    let X = proof.witness_com + msg_com;
+    let X = proof.witness_com + msg_com + kk_com;
     let Y = proof.sigmas.Y_2 - ck.G * constant_term;
     sigma::lineval_verifier(transcript, &ck, &v, &X, &Y, &proof.sigmas.proof_f_tensor)?;
 
@@ -135,7 +138,7 @@ fn test_aes128_proof_correctness() {
         0xE7u8, 0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69,
         0x0C,
     ];
-    let ck = pedersen::setup::<G>(&mut rand::thread_rng(), 2084);
+    let ck = pedersen::setup::<G>(&mut rand::thread_rng(), OFFSETS.len*2);
 
     let msg = message
         .iter()
