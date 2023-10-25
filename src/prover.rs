@@ -14,27 +14,24 @@ use crate::sigma::SigmaProof;
 // A summary of the evaluations and proofs required in the protocol.
 #[derive(Default, CanonicalSerialize)]
 pub struct LinearEvaluationProofs<G: CurveGroup> {
-    // Proof for <m, h> = y
-    pub proof_m_h: SigmaProof<G>,
-
-    // Proof and partial result for merged scalar product: <g, tensor + c> = y_1 + c * y
-    pub proof_q_1_tensor: SigmaProof<G>,
     // com(y_1)
     pub Y_1: G,
-
-    // Proof and result for <f, tensor> = <w, A tensor> =  y_2
-    pub proof_f_tensor: SigmaProof<G>,
     // com(y_2)
     pub Y_2: G,
 
+    // Proof for <m, h> = y
+    pub proof_m_h: SigmaProof<G>,
+    // Proof and partial result for merged scalar product: <g, tensor + c> = y_1 + c * y
+    pub proof_q_1_tensor: SigmaProof<G>,
+    // Proof and result for <f, tensor> = <w, A tensor> =  y_2
+    pub proof_f_tensor: SigmaProof<G>,
+    // Proof that Y = y1 * y2 (??)
     pub proof_y: SigmaProof<G>,
 }
 
 #[derive(Default, CanonicalSerialize)]
 pub struct TinybearProof<G: CurveGroup> {
     pub witness_com: G,
-
-    // we actually know the len of the items below, it's LOOKUP_CHUNKS
     pub freqs_com: G, // com(m)
 
     pub inverse_needles_com: G, // com(g)
@@ -42,12 +39,7 @@ pub struct TinybearProof<G: CurveGroup> {
     pub y: G::ScalarField,      // <g, 1>
     // also satisfies: <q,f> = s = |f| - c * y
 
-    // we actually know the len of this thing,
-    // it's going to be 12 for aes128 with 4-bit xor
-    // it's going to be 17 for 8-bit table xor
-    // XXX
     pub sumcheck_messages: Vec<[G::ScalarField; 2]>,
-
     // Proofs and results for the linear evaluation proofs
     pub sigmas: LinearEvaluationProofs<G>,
 }
@@ -142,22 +134,19 @@ pub fn compute_needles_and_frequencies<F: Field>(
     // Generate the witness.
     // witness_s_box = [(a, sbox(a)), (b, sbox(b)), ...]
     let witness_s_box = get_s_box_witness(witness);
-
+    // witness_r2j = [(a, r2j(a)), (b, r2j(b)), ...]
     let witness_r2j = get_r2j_witness(witness);
-
-    // witness_xor = [(a, b, xor(a, b)), (c, d, xor(c, d)), ...]
+    // witness_xor = [(a, b, xor(a, b)), (c, d, xor(c, d)), ...] for 4-bits
     let witness_xor = get_xor_witness(witness);
 
     // Needles: these are the elements that want to be found in the haystack.
-    // Note: sbox+mixcol is a single table x -> MXCOLHELP[SBOX[x]]
-
     // s_box_needles = [x_1 + r * sbox[x_1], x_2 + r * sbox[x_2], ...]
     let s_box_needles = lookup::compute_u8_needles(&witness_s_box, r_sbox);
+    // r2j_needles = [x_1 + r2 * r2j[x_1], x_2 + r2 * r2j[x_2], ...]
     let r2j_needles = lookup::compute_u8_needles(&witness_r2j, r_rj2);
-
-    // ASN xor_needles = ??? 4 bit stuff
+    // xor_needles = [x_1 + r * x_2 + r2 * xor[x_1 || x_2] , ...]
     let xor_needles = lookup::compute_u16_needles(&witness_xor, [r_xor, r2_xor]);
-
+    // concatenate all needles
     let needles = [s_box_needles, r2j_needles, xor_needles].concat();
 
     // Frequencies: these count how many times each element will appear in the haystack.
@@ -175,7 +164,6 @@ pub fn compute_needles_and_frequencies<F: Field>(
         .iter()
         .map(|x| F::from(*x))
         .collect::<Vec<_>>();
-
     assert_eq!(needles.len(), helper::NEEDLES_LEN);
     (needles, frequencies, frequencies_u8)
 }
@@ -200,25 +188,22 @@ where
     // TIME: ~3-4ms [outdated]
     let witness_vector = helper::vectorize_witness(&witness);
     let (W, W_opening) = pedersen::commit_hiding_u8(rng, &ck, &witness_vector);
-
     // Send W
     proof.witness_com = W;
     transcript
         .append_serializable_element(b"witness_com", &[proof.witness_com])
         .unwrap();
 
-    //////////////////////////// Lookup protocol //////////////////////////////
-
+    // Lookup
     // Get challenges for the lookup protocol.
     // one for sbox + mxcolhelp, sbox, two for xor
     let r_rj2 = transcript.get_and_append_challenge(b"r_rj2").unwrap();
     let r_sbox = transcript.get_and_append_challenge(b"r_sbox").unwrap();
     let r_xor = transcript.get_and_append_challenge(b"r_xor").unwrap();
     let r2_xor = transcript.get_and_append_challenge(b"r2_xor").unwrap();
-
+    // Compute needles and frequencies
     let (needles, frequencies, frequencies_u8) =
         compute_needles_and_frequencies(&witness, r_xor, r2_xor, r_sbox, r_rj2);
-
     // Commit to m (using mu as the blinder) and send it over
     let (freqs_com, mu) = pedersen::commit_hiding_u8(rng, ck, &frequencies_u8);
 
@@ -230,7 +215,7 @@ where
 
     // Get the lookup challenge c and compute q and y
     let c = transcript.get_and_append_challenge(b"c").unwrap();
-    // Compute vector of inverse_needles[i] = 1 / (needles[i] + a) = q
+    // Compute vector inverse_needles[i] = 1 / (needles[i] + a) = q
     let mut inverse_needles = needles.iter().map(|k| c + k).collect::<Vec<_>>();
     ark_ff::batch_inversion(&mut inverse_needles);
 
@@ -278,7 +263,6 @@ where
             .sum::<G::ScalarField>(),
         inverse_needles.iter().sum::<G::ScalarField>()
     );
-
     // check other linear evaluation scalar products
     // <m, h> == y
     assert_eq!(linalg::inner_product(&frequencies, &inverse_haystack), y);
