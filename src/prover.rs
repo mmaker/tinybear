@@ -8,8 +8,10 @@ use ark_serialize::CanonicalSerialize;
 use transcript::IOPTranscript;
 
 use super::{aes, helper, linalg, lookup, pedersen, sigma, sumcheck};
+use crate::linalg::tensor;
 use crate::pedersen::CommitmentKey;
 use crate::sigma::SigmaProof;
+use crate::sumcheck::Claim;
 
 // A summary of the evaluations and proofs required in the protocol.
 #[derive(Default, CanonicalSerialize)]
@@ -30,15 +32,21 @@ pub struct LinearEvaluationProofs<G: CurveGroup> {
 
 #[derive(Default, CanonicalSerialize)]
 pub struct TinybearProof<G: CurveGroup> {
+    // first message: witness commitment, frequencies commitment.
     pub witness_com: G,
-    pub freqs_com: G,           // com(m)
+    pub freqs_com: G, // com(m)
+    // second message: inverse needles commitment, claimed evaluation.
     pub inverse_needles_com: G, // com(g)
     pub Y: G,                   // com(y)
-    pub y: G::ScalarField,      // <g, 1>
-    // also satisfies: <q,f> = s = |f| - c * y
-    pub sumcheck_messages: Vec<[G::ScalarField; 2]>,
-    // Proofs and results for the linear evaluation proofs
-    pub sigmas: LinearEvaluationProofs<G>,
+    // sumcheck arguments: prove inner products.
+    // also satisfies: <q,f> = s = tensor_evaluation - c * y
+    pub sumcheck_messages: Vec<[G; 2]>,
+    // claimed final evaluations.
+    pub folded_w_com: G,
+    pub folded_q_com: G,
+    pub folded_m_com: G,
+    // proof for final evaluations.
+    pub sigma: SigmaProof<G>,
 }
 
 fn get_r2j_witness(witness: &aes::Witness) -> Vec<(u8, u8)> {
@@ -225,7 +233,6 @@ where
     // Send (Q,Y)
     proof.inverse_needles_com = inverse_needles_com;
     proof.Y = Y;
-    proof.y = y; // XXX REMOVE
 
     transcript
         .append_serializable_element(b"Q", &[proof.inverse_needles_com])
@@ -237,24 +244,7 @@ where
     // Finally compute h and t
     let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_rj2, c);
 
-    ////////////////////////////// Sumcheck  //////////////////////////////
-    // claims to be computed:
-    // 1. <h, m> = y
-    // 2. <q, 1> = y
-    // 3. <q, (twist * A) * w + twist * c)>  = geom_series_twist
-    // 4. <m, G> = M
-    // 5. <q, G> = Q
-    // 6. <w, G> = W
-
-    // Reduce scalar product <f,g> to a tensor product
-    let (sumcheck_challenges, sumcheck_messages) =
-        sumcheck::sumcheck(transcript, &needles, &inverse_needles);
-
-    // pour sumcheck messages into the proof
-    proof.sumcheck_messages = sumcheck_messages;
-
     //////////////////////////////// Sanity checks ////////////////////////////////////////
-
     // Sanity check: check that the witness is indeed valid
     // sum_i q_i  = sum_i f_i
     assert_eq!(inverse_haystack.len(), frequencies_u8.len());
@@ -273,88 +263,81 @@ where
     // <g, 1> == y
     assert_eq!(inverse_needles.iter().sum::<G::ScalarField>(), y);
 
+    ////////////////////////////// Sumcheck  //////////////////////////////
+    // claims to be computed:
+    // 1. <m, h> = y
+    // 2. <q, 1> = y
+    //    <q, twist . (A * w + c)>  = geom_series_twist + y
+    // 3. <m, G> = M
+    //    <q, G> = Q
+    //    <w', G'> = W
+    //   all shrinked into one
+    // where
+    //  w' = twist . (A * w)
+    //  G' =  (A * twist)^{-1} . G
+
+    // get verifier challenges
+    let twist = transcript.get_and_append_challenge(b"twist").unwrap();
+    let lin_batch_chal = transcript
+        .get_and_append_challenge(b"lin batch chal")
+        .unwrap();
+    let lin_batch_chal2 = lin_batch_chal.square();
+    let batch_chal = transcript
+        .get_and_append_challenge(b"sumcheck batch chal")
+        .unwrap();
+
+    // <m, h> = y
+    let claim_1 = Claim::Field(frequencies.to_vec(), inverse_haystack.to_vec());
+
+    // <m, G> = M; <q, G> = Q; <w, G> = W
+    let claim_2_lhs = frequencies
+        .iter()
+        .zip(&witness_vector)
+        .zip(&inverse_needles)
+        .map(|((a, b), c)| *a + lin_batch_chal * G::ScalarField::from(*b) + lin_batch_chal2 * c)
+        .collect::<Vec<_>>();
+    let claim_2 = Claim::Group(claim_2_lhs, ck.vec_G.iter().map(|x| G::from(*x)).collect());
+
+    // <q, twist . (A * w + c)>  = geom_series_twist + y
+    let twists = linalg::powers(twist, helper::NEEDLES_LEN);
+    let (mut mapped, _constant_term) =
+        helper::trace_to_needles_map(&witness.output, &twists, r_sbox, r_rj2, r_xor, r2_xor);
+    mapped.iter_mut().for_each(|x| *x += c);
+    let claim_3 = Claim::Field(inverse_needles.to_vec(), mapped);
+
+    let claims = [claim_1, claim_2, claim_3];
+    let batch_challenges = linalg::powers(batch_chal, 3).try_into().unwrap();
+    let (reduced_claims, sumcheck_challenges, sumcheck_messages, sumcheck_openings) =
+        sumcheck::batch_sumcheck(rng, transcript, ck, claims, batch_challenges);
+    proof.sumcheck_messages = sumcheck_messages;
+
+    let [Claim::Field(folded_m, folded_h), Claim::Group(folded_commitments, folded_generators), Claim::Field(folded_q, folded_linear_w)] =
+        reduced_claims
+    else {
+        unreachable!()
+    };
+
+    let (folded_q_com, folded_q_opening) = pedersen::commit_hiding(rng, &ck, &folded_q);
+    let (folded_m_com, folded_m_opening) = pedersen::commit_hiding(rng, &ck, &folded_m);
+    let (folded_w_com, folded_w_opening) = pedersen::commit_hiding(rng, &ck, &folded_linear_w);
+
+    // send at the end:
+    // com(folded_w)
+    // com(folded_q)
+    // com(folded_m)
+    // verifier computes:
+    // folded_h
+    // folded_1
+    // folded_G
+    // folded_twist_G
+    // prover must also prove folded_q * folded_w'
+    proof.folded_m_com = folded_m_com;
+    proof.folded_q_com = folded_q_com;
+    proof.folded_w_com = folded_w_com;
+
     ////////////////////////////// Sigma protocols //////////////////////////////
+    // proof.tensors =
 
-    ////////////////////// First sigma: <m, h> = y ////////////////////
-    proof.sigmas.proof_m_h = sigma::lineval_prover(
-        rng,
-        transcript,
-        ck,
-        &frequencies,
-        mu,
-        psi,
-        &inverse_haystack,
-    );
-
-    ////////////////////// Second (merged) sigma: <g, tensor + z> = y_1 + z * y ////////////////////
-
-    // Merge two sigmas <g, tensor> = y_1 and <g, 1> = y
-    // multiply the latter with random z and merge by linearity
-    // into <g, tensor + z> = y_1 + z * y
-
-    // Public part (evaluation challenge) of tensor relation: ⦻(1, rho_j)
-    let tensor_sumcheck_challenges = linalg::tensor(&sumcheck_challenges);
-
-    let z = transcript.get_and_append_challenge(b"bc").unwrap();
-    let vec_tensor_z = tensor_sumcheck_challenges
-        .iter()
-        .map(|t| *t + z)
-        .collect::<Vec<_>>();
-
-    // Compute partial result and commit to it
-    let y_1 = linalg::inner_product(&inverse_needles, &tensor_sumcheck_challenges);
-    let (Y_1, epsilon) = pedersen::commit_hiding(rng, &ck, &[y_1]);
-
-    // The blinder of the commitment `Y_1 + z * Y` for use in the sigma below
-    let Y_1_z_Y_blinder = epsilon + z * psi;
-
-    // Finally compute the sigma proof
-    proof.sigmas.proof_q_1_tensor = sigma::lineval_prover(
-        rng,
-        transcript,
-        ck,
-        &inverse_needles,
-        theta,
-        Y_1_z_Y_blinder,
-        &vec_tensor_z,
-    );
-    proof.sigmas.Y_1 = Y_1;
-
-    ////////////////////// Final sigma: <f, tensor> = y_2 ////////////////////
-
-    let y_2 = linalg::inner_product(&needles, &tensor_sumcheck_challenges);
-    let (f_challenge_vec, chal_constant_term) = helper::trace_to_needles_map(
-        &witness.output,
-        &tensor_sumcheck_challenges,
-        r_sbox,
-        r_rj2,
-        r_xor,
-        r2_xor,
-    );
-    let v = witness_vector
-        .iter()
-        .copied()
-        .chain(message.iter().map(|&x| [x & 0xf, x >> 4]).flatten())
-        .chain(
-            witness
-                ._keys
-                .iter()
-                .flatten()
-                .map(|&x| [x & 0xf, x >> 4])
-                .flatten(),
-        )
-        .map(|e| G::ScalarField::from(e))
-        .collect::<Vec<_>>();
-    assert_eq!(y_2 - chal_constant_term, {
-        linalg::inner_product(&f_challenge_vec, &v)
-    });
-    let (Y_2, iota) = pedersen::commit_hiding(rng, &ck, &[y_2]);
-    proof.sigmas.proof_f_tensor =
-        sigma::lineval_prover(rng, transcript, ck, &v, W_opening, iota, &f_challenge_vec);
-
-    proof.sigmas.Y_2 = Y_2;
-
-    // proof.sigmas.sigma_proof_y
     proof
 }
 
@@ -377,5 +360,4 @@ fn test_prove() {
 
     let proof = prove::<G>(&mut transcript, &ck, message, &key);
     println!("size: {}", proof.compressed_size());
-    println!("size: {}", proof.sigmas.compressed_size());
 }

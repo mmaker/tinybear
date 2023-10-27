@@ -47,57 +47,57 @@ where
     let (_haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_rj2, c);
 
     // Sumcheck
-    let sumcheck_claim_s = G::ScalarField::from(helper::NEEDLES_LEN as i32) - c * proof.y;
-    let (sumcheck_challenges, tensorcheck_claim) =
-        sumcheck::reduce(transcript, &proof.sumcheck_messages, sumcheck_claim_s);
+    // let sumcheck_claim_s = G::ScalarField::from(helper::NEEDLES_LEN as i32) - c * proof.y;
+    // let (sumcheck_challenges, tensorcheck_claim) =
+    //     sumcheck::reduce(transcript, &proof.sumcheck_messages, sumcheck_claim_s);
 
-    // Verify sumcheck tensorcheck claim (random evaluation)
-    // using yet unverified y_1 and y_2
-    // assert_eq!(tensorcheck_claim, proof.sigmas.y_1 * proof.sigmas.y_2);
+    // // Verify sumcheck tensorcheck claim (random evaluation)
+    // // using yet unverified y_1 and y_2
+    // // assert_eq!(tensorcheck_claim, proof.sigmas.y_1 * proof.sigmas.y_2);
 
-    // Linear evaluations
-    // time to verify that g, m and y are correctly provided by the prover
+    // // Linear evaluations
+    // // time to verify that g, m and y are correctly provided by the prover
 
-    // // Verify first sigma: <m, h> = y
-    sigma::lineval_verifier(
-        transcript,
-        &ck,
-        &inverse_haystack,
-        &proof.freqs_com,
-        &proof.Y,
-        &proof.sigmas.proof_m_h,
-    )?;
+    // // // Verify first sigma: <m, h> = y
+    // sigma::lineval_verifier(
+    //     transcript,
+    //     &ck,
+    //     &inverse_haystack,
+    //     &proof.freqs_com,
+    //     &proof.Y,
+    //     &proof.sigmas.proof_m_h,
+    // )?;
 
-    // Verify merged scalar product: <g, tensor + z> = y_1 + z * y
+    // // Verify merged scalar product: <g, tensor + z> = y_1 + z * y
 
-    let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
+    // let tensor_evaluation_point = linalg::tensor(&sumcheck_challenges);
 
-    let z = transcript.get_and_append_challenge(b"bc").unwrap();
-    let vec_tensor_z: Vec<G::ScalarField> =
-        tensor_evaluation_point.iter().map(|t| *t + z).collect();
-    let Y_1_z_Y = proof.sigmas.Y_1 + proof.Y.mul(z);
-    sigma::lineval_verifier(
-        transcript,
-        &ck,
-        &vec_tensor_z,
-        &proof.inverse_needles_com,
-        &Y_1_z_Y,
-        &proof.sigmas.proof_q_1_tensor,
-    )?;
+    // let z = transcript.get_and_append_challenge(b"bc").unwrap();
+    // let vec_tensor_z: Vec<G::ScalarField> =
+    //     tensor_evaluation_point.iter().map(|t| *t + z).collect();
+    // let Y_1_z_Y = proof.sigmas.Y_1 + proof.Y.mul(z);
+    // sigma::lineval_verifier(
+    //     transcript,
+    //     &ck,
+    //     &vec_tensor_z,
+    //     &proof.inverse_needles_com,
+    //     &Y_1_z_Y,
+    //     &proof.sigmas.proof_q_1_tensor,
+    // )?;
 
-    // Verify fourth sigma: <h, tensor> = y
-    let sumcheck_tensor_challenges = linalg::tensor(&sumcheck_challenges);
-    let (v, constant_term) = helper::trace_to_needles_map(
-        &ctx,
-        &sumcheck_tensor_challenges,
-        r_sbox,
-        r_rj2,
-        r_xor,
-        r2_xor,
-    );
-    let X = proof.witness_com + message_commitment + round_keys_commitment;
-    let Y = proof.sigmas.Y_2 - ck.G * constant_term;
-    sigma::lineval_verifier(transcript, &ck, &v, &X, &Y, &proof.sigmas.proof_f_tensor)?;
+    // // Verify fourth sigma: <h, tensor> = y
+    // let sumcheck_tensor_challenges = linalg::tensor(&sumcheck_challenges);
+    // let (v, constant_term) = helper::trace_to_needles_map(
+    //     &ctx,
+    //     &sumcheck_tensor_challenges,
+    //     r_sbox,
+    //     r_rj2,
+    //     r_xor,
+    //     r2_xor,
+    // );
+    // let X = proof.witness_com + message_commitment + round_keys_commitment;
+    // let Y = proof.sigmas.Y_2 - ck.G * constant_term;
+    // sigma::lineval_verifier(transcript, &ck, &v, &X, &Y, &proof.sigmas.proof_f_tensor)?;
 
     Ok(())
 }

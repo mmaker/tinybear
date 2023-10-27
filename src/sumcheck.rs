@@ -1,9 +1,9 @@
-use ark_curve25519::{EdwardsAffine, EdwardsProjective};
-use ark_ec::{CurveGroup, VariableBaseMSM};
+use ark_ec::CurveGroup;
 use ark_ff::AdditiveGroup;
 use ark_ff::{Field, PrimeField, Zero};
 use rand::{CryptoRng, RngCore};
 use transcript::IOPTranscript;
+use ark_ec::VariableBaseMSM;
 
 use crate::linalg::{self, inner_product};
 use crate::pedersen::{self, CommitmentKey};
@@ -15,6 +15,17 @@ fn fold_inplace<M: AdditiveGroup>(f: &mut Vec<M>, r: M::Scalar) {
     }
     f.drain(half..);
 }
+
+// fn group_fold_inplace<G: CurveGroup>(f: &mut Vec<G::Affine>, r: G::ScalarField) {
+//     let half = (f.len() + 1) / 2;
+//     let f_odd = f.iter().skip(1).step_by(2).copied().collect::<Vec<G::Affine>>();
+//     let f_even = f.iter_mut().step_by(2);
+
+//     for (f_even, f_odd) in f_even.zip(f_odd) {
+//         *f_even = (*f_even + f_odd * r).into_affine();
+//     }
+//     f.drain(half..);
+// }
 
 fn round_message<F, G>(f: &mut Vec<F>, g: &mut Vec<G>) -> [G; 2]
 where
@@ -39,6 +50,20 @@ where
     }
     [a, b]
 }
+
+// fn group_round_message<G>(f: &mut Vec<G::ScalarField>, g: &mut Vec<G::Affine>) -> [G; 2]
+// where
+//     G: CurveGroup,
+// {
+//     let f_even = f.iter().copied().step_by(2).collect::<Vec<_>>();
+//     let g_even = g.iter().copied().step_by(2).collect::<Vec<_>>();
+//     let f_odd = f.iter().copied().skip(1).step_by(2).collect::<Vec<_>>();
+//     let g_odd = g.iter().copied().skip(1).step_by(2).collect::<Vec<_>>();
+
+//     let a = G::msm_unchecked(&g_even, &f_even);
+//     let b = G::msm_unchecked(&g_odd, &f_even) + G::msm_unchecked(&g_even, &f_odd);
+//     [a, b]
+// }
 
 pub fn reduce<G>(
     transcript: &mut IOPTranscript<G::Scalar>,
@@ -100,7 +125,12 @@ pub(crate) fn batch_sumcheck<G: CurveGroup, const N: usize>(
     ck: &CommitmentKey<G>,
     mut claims: [Claim<G>; N],
     batch_challenges: [G::ScalarField; N],
-) -> (Vec<G::ScalarField>, Vec<[G; 2]>, Vec<[G::ScalarField; 2]>) {
+) -> (
+    [Claim<G>; N],
+    Vec<G::ScalarField>,
+    Vec<[G; 2]>,
+    Vec<[G::ScalarField; 2]>,
+) {
     let mut msgs = Vec::new();
     let mut chals = Vec::new();
     let mut openings = Vec::new();
@@ -109,13 +139,13 @@ pub(crate) fn batch_sumcheck<G: CurveGroup, const N: usize>(
         let mut group_msg = [G::zero(), G::zero()];
         for (batch_chal, claim) in batch_challenges.iter().zip(claims.iter_mut()) {
             match claim {
-                Claim::Field(a, b) => {
-                    let [a, b] = round_message(a, b);
+                Claim::Field(v, w) => {
+                    let [a, b] = round_message(v, w);
                     field_msg[0] += a * batch_chal;
                     field_msg[1] += b * batch_chal;
                 }
-                Claim::Group(a, b) => {
-                    let [a, b] = round_message(a, b);
+                Claim::Group(v, w) => {
+                    let [a, b]: [G; 2] = round_message(v, w);
                     group_msg[0] += a * batch_chal;
                     group_msg[1] += b * batch_chal;
                 }
@@ -133,7 +163,7 @@ pub(crate) fn batch_sumcheck<G: CurveGroup, const N: usize>(
         openings.push([a_opening, b_opening]);
         chals.push(c);
     }
-    (chals, msgs, openings)
+    (claims, chals, msgs, openings)
 }
 
 /// Prove the inner product <v, w> using a sumcheck
@@ -201,6 +231,7 @@ fn test_sumcheck() {
 #[test]
 fn test_batch_sumcheck() {
     type F = ark_curve25519::Fr;
+    use ark_curve25519::EdwardsProjective;
     use ark_std::UniformRand;
     use rand::rngs::OsRng;
 
@@ -228,7 +259,7 @@ fn test_batch_sumcheck() {
         ),
     ];
     let batch_challenges = [F::from(1), F::from(2), F::from(3)];
-    let (chals, messages, openings) = batch_sumcheck(
+    let (claims, chals, messages, openings) = batch_sumcheck(
         &mut rng,
         &mut transcript_p,
         &ck,

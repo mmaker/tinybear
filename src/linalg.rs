@@ -31,6 +31,15 @@ pub fn tensor<F: Field>(elements: &[F]) -> Vec<F> {
     tensor
 }
 
+/// Return a vector of length `len` containing the consecutive powers of element.
+pub(crate) fn powers<F: Field>(element: F, len: usize) -> Vec<F> {
+    let mut powers = vec![F::one(); len];
+    for i in 1..len {
+        powers[i] = element * powers[i - 1];
+    }
+    powers
+}
+
 pub fn linear_combination<F: Field>(vectors: &[&[F]], coefficients: &[F]) -> Vec<F> {
     // assume vectors[0] is the longest
     let mut result = vectors[0].to_vec();
