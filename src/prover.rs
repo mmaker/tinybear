@@ -241,11 +241,10 @@ where
     // claims to be computed:
     // 1. <h, m> = y
     // 2. <q, 1> = y
-    // 3. <q, twist * A * w + twist * c)>  = geom_series_twist
+    // 3. <q, (twist * A) * w + twist * c)>  = geom_series_twist
     // 4. <m, G> = M
     // 5. <q, G> = Q
     // 6. <w, G> = W
-
 
     // Reduce scalar product <f,g> to a tensor product
     let (sumcheck_challenges, sumcheck_messages) =

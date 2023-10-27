@@ -1,9 +1,11 @@
-use ark_ec::CurveGroup;
+use ark_curve25519::{EdwardsAffine, EdwardsProjective};
+use ark_ec::{CurveGroup, VariableBaseMSM};
 use ark_ff::AdditiveGroup;
 use ark_ff::{Field, PrimeField, Zero};
 use rand::{CryptoRng, RngCore};
 use transcript::IOPTranscript;
 
+use crate::linalg::{self, inner_product};
 use crate::pedersen::{self, CommitmentKey};
 
 fn fold_inplace<M: AdditiveGroup>(f: &mut Vec<M>, r: M::Scalar) {
@@ -65,7 +67,7 @@ where
     (challenges, claim)
 }
 
-enum Claim<G: CurveGroup> {
+pub(crate) enum Claim<G: CurveGroup> {
     Field(Vec<G::ScalarField>, Vec<G::ScalarField>),
     Group(Vec<G::ScalarField>, Vec<G>),
 }
@@ -92,7 +94,7 @@ impl<G: CurveGroup> Claim<G> {
     }
 }
 
-pub fn batch_sumcheck<G: CurveGroup, const N: usize>(
+pub(crate) fn batch_sumcheck<G: CurveGroup, const N: usize>(
     rng: &mut (impl RngCore + CryptoRng),
     transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &CommitmentKey<G>,
@@ -121,10 +123,9 @@ pub fn batch_sumcheck<G: CurveGroup, const N: usize>(
         }
         let (com_a, a_opening) = pedersen::commit_hiding(rng, ck, &[field_msg[0]]);
         let (com_b, b_opening) = pedersen::commit_hiding(rng, ck, &[field_msg[1]]);
-        let msg = [
-            com_a + group_msg[0],
-            com_b + group_msg[1],
-        ];
+        // let com_a = ck.G * field_msg[0];
+        // let com_b = ck.G * field_msg[1];
+        let msg = [com_a + group_msg[0], com_b + group_msg[1]];
         transcript.append_serializable_element(b"ab", &msg).unwrap();
         let c = transcript.get_and_append_challenge(b"r").unwrap();
         claims.iter_mut().for_each(|claim| claim.fold(c));
@@ -195,4 +196,65 @@ fn test_sumcheck() {
 
     // Check that their product matches the tensorcheck claim
     assert_eq!(tensorcheck_claim, b * c);
+}
+
+#[test]
+fn test_batch_sumcheck() {
+    type F = ark_curve25519::Fr;
+    use ark_std::UniformRand;
+    use rand::rngs::OsRng;
+
+    let mut rng = OsRng;
+    let v = (0..16).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
+    let w = (0..16).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
+    let ck = pedersen::setup::<ark_curve25519::EdwardsProjective>(&mut rng, 16);
+
+    let mut transcript_p = IOPTranscript::<F>::new(b"sumcheck");
+    let ipa_claim = [
+        Claim::Field(v.clone(), w.clone()),
+        Claim::Group(
+            v.clone(),
+            ck.vec_G
+                .iter()
+                .map(|x| EdwardsProjective::from(*x))
+                .collect(),
+        ),
+        Claim::Group(
+            w.clone(),
+            ck.vec_G
+                .iter()
+                .map(|x| EdwardsProjective::from(*x))
+                .collect(),
+        ),
+    ];
+    let batch_challenges = [F::from(1), F::from(2), F::from(3)];
+    let (chals, messages, openings) = batch_sumcheck(
+        &mut rng,
+        &mut transcript_p,
+        &ck,
+        ipa_claim,
+        batch_challenges,
+    );
+    let verifier_statement = ck.G * batch_challenges[0] * inner_product(&v, &w)
+        + EdwardsProjective::msm(&ck.vec_G, &v).unwrap() * batch_challenges[1]
+        + EdwardsProjective::msm(&ck.vec_G, &w).unwrap() * batch_challenges[2];
+
+    let mut transcript_v = IOPTranscript::<F>::new(b"sumcheck");
+    let (verifier_chals, tensorcheck_claim) =
+        reduce(&mut transcript_v, &messages, verifier_statement);
+    assert_eq!(verifier_chals, chals);
+    let tensor = linalg::tensor(&chals[..]);
+    let reduced_v = linalg::inner_product(&v, &tensor);
+    let reduced_w = linalg::inner_product(&w, &tensor);
+    let reduced_G = EdwardsProjective::msm(&ck.vec_G, &tensor).unwrap();
+
+    let mut blinding_factor = F::zero();
+    for (opening, c) in openings.iter().zip(chals) {
+        blinding_factor = opening[0] + opening[1] * c + (blinding_factor - opening[0]) * c.square()
+    }
+    let tensorcheck_claim = tensorcheck_claim - ck.H * blinding_factor;
+    let expected_claim = ck.G * batch_challenges[0] * reduced_v * reduced_w
+        + reduced_G * batch_challenges[1] * reduced_v
+        + reduced_G * batch_challenges[2] * reduced_w;
+    assert_eq!(tensorcheck_claim, expected_claim);
 }
