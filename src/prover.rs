@@ -34,8 +34,7 @@ pub struct TinybearProof<G: CurveGroup> {
     pub freqs_com: G,           // com(m)
     pub inverse_needles_com: G, // com(g)
     pub Y: G,                   // com(y)
-
-    pub y: G::ScalarField, // <g, 1>
+    pub y: G::ScalarField,      // <g, 1>
     // also satisfies: <q,f> = s = |f| - c * y
     pub sumcheck_messages: Vec<[G::ScalarField; 2]>,
     // Proofs and results for the linear evaluation proofs
@@ -239,6 +238,14 @@ where
     let (haystack, inverse_haystack) = lookup::compute_haystack(r_xor, r2_xor, r_sbox, r_rj2, c);
 
     ////////////////////////////// Sumcheck  //////////////////////////////
+    // claims to be computed:
+    // 1. <h, m> = y
+    // 2. <q, 1> = y
+    // 3. <q, twist * A * w + twist * c)>  = geom_series_twist
+    // 4. <m, G> = M
+    // 5. <q, G> = Q
+    // 6. <w, G> = W
+
 
     // Reduce scalar product <f,g> to a tensor product
     let (sumcheck_challenges, sumcheck_messages) =

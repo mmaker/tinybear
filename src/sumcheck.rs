@@ -1,11 +1,15 @@
+use ark_ec::CurveGroup;
 use ark_ff::AdditiveGroup;
-use ark_ff::PrimeField;
+use ark_ff::{Field, PrimeField, Zero};
+use rand::{CryptoRng, RngCore};
 use transcript::IOPTranscript;
 
-fn fold_inplace<F: PrimeField>(f: &mut Vec<F>, r: F) {
+use crate::pedersen::{self, CommitmentKey};
+
+fn fold_inplace<M: AdditiveGroup>(f: &mut Vec<M>, r: M::Scalar) {
     let half = (f.len() + 1) / 2;
     for i in 0..half {
-        f[i] = f[i * 2] + r * f.get(i * 2 + 1).unwrap_or(&F::zero());
+        f[i] = f[i * 2] + *f.get(i * 2 + 1).unwrap_or(&M::zero()) * r;
     }
     f.drain(half..);
 }
@@ -34,11 +38,15 @@ where
     [a, b]
 }
 
-pub fn reduce<F: PrimeField, G: AdditiveGroup<Scalar = F>>(
-    transcript: &mut IOPTranscript<F>,
+pub fn reduce<G>(
+    transcript: &mut IOPTranscript<G::Scalar>,
     messages: &[[G; 2]],
     mut claim: G,
-) -> (Vec<F>, G) {
+) -> (Vec<G::Scalar>, G)
+where
+    G: AdditiveGroup,
+    G::Scalar: PrimeField,
+{
     let mut challenges = Vec::with_capacity(messages.len());
     // reduce to a subclaim using the prover's messages.
     for &[a, b] in messages {
@@ -57,13 +65,82 @@ pub fn reduce<F: PrimeField, G: AdditiveGroup<Scalar = F>>(
     (challenges, claim)
 }
 
+enum Claim<G: CurveGroup> {
+    Field(Vec<G::ScalarField>, Vec<G::ScalarField>),
+    Group(Vec<G::ScalarField>, Vec<G>),
+}
+
+impl<G: CurveGroup> Claim<G> {
+    fn len(&self) -> usize {
+        match self {
+            Claim::Field(a, b) => a.len() + b.len(),
+            Claim::Group(a, b) => a.len() + b.len(),
+        }
+    }
+
+    fn fold(&mut self, c: G::ScalarField) {
+        match self {
+            Claim::Field(a, b) => {
+                fold_inplace(a, c);
+                fold_inplace(b, c);
+            }
+            Claim::Group(a, b) => {
+                fold_inplace(a, c);
+                fold_inplace(b, c);
+            }
+        }
+    }
+}
+
+pub fn batch_sumcheck<G: CurveGroup, const N: usize>(
+    rng: &mut (impl RngCore + CryptoRng),
+    transcript: &mut IOPTranscript<G::ScalarField>,
+    ck: &CommitmentKey<G>,
+    mut claims: [Claim<G>; N],
+    batch_challenges: [G::ScalarField; N],
+) -> (Vec<G::ScalarField>, Vec<[G; 2]>, Vec<[G::ScalarField; 2]>) {
+    let mut msgs = Vec::new();
+    let mut chals = Vec::new();
+    let mut openings = Vec::new();
+    while claims.iter().any(|claim| claim.len() > 2) {
+        let mut field_msg = [G::ScalarField::zero(), G::ScalarField::zero()];
+        let mut group_msg = [G::zero(), G::zero()];
+        for (batch_chal, claim) in batch_challenges.iter().zip(claims.iter_mut()) {
+            match claim {
+                Claim::Field(a, b) => {
+                    let [a, b] = round_message(a, b);
+                    field_msg[0] += a * batch_chal;
+                    field_msg[1] += b * batch_chal;
+                }
+                Claim::Group(a, b) => {
+                    let [a, b] = round_message(a, b);
+                    group_msg[0] += a * batch_chal;
+                    group_msg[1] += b * batch_chal;
+                }
+            }
+        }
+        let (com_a, a_opening) = pedersen::commit_hiding(rng, ck, &[field_msg[0]]);
+        let (com_b, b_opening) = pedersen::commit_hiding(rng, ck, &[field_msg[1]]);
+        let msg = [
+            com_a + group_msg[0],
+            com_b + group_msg[1],
+        ];
+        transcript.append_serializable_element(b"ab", &msg).unwrap();
+        let c = transcript.get_and_append_challenge(b"r").unwrap();
+        claims.iter_mut().for_each(|claim| claim.fold(c));
+        msgs.push(msg);
+        openings.push([a_opening, b_opening]);
+        chals.push(c);
+    }
+    (chals, msgs, openings)
+}
+
 /// Prove the inner product <v, w> using a sumcheck
-///
-pub fn sumcheck<F: PrimeField>(
+pub fn sumcheck<F: PrimeField, G: AdditiveGroup<Scalar = F>>(
     transcript: &mut IOPTranscript<F>,
     v: &[F],
-    w: &[F],
-) -> (Vec<F>, Vec<[F; 2]>) {
+    w: &[G],
+) -> (Vec<F>, Vec<[G; 2]>) {
     let mut msgs = Vec::new();
     let mut chals = Vec::new();
     let mut v = v.to_vec();
