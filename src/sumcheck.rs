@@ -8,48 +8,57 @@ use ark_ec::VariableBaseMSM;
 use crate::linalg::{self, inner_product};
 use crate::pedersen::{self, CommitmentKey};
 
-fn fold_inplace<M: AdditiveGroup>(f: &mut Vec<M>, r: M::Scalar) {
-    let half = (f.len() + 1) / 2;
-    for i in 0..half {
-        f[i] = f[i * 2] + *f.get(i * 2 + 1).unwrap_or(&M::zero()) * r;
-    }
-    f.drain(half..);
+/// Folds together `(a, b)` using challenges `x` and `y`.
+fn fold<F: Field>(a: &[F], b: &[F], x: &F, y: &F) -> Vec<F> {
+    a.iter()
+        .zip(b.iter())
+        .map(|(&a, &b)| a * x + b * y)
+        .collect()
 }
 
-// fn group_fold_inplace<G: CurveGroup>(f: &mut Vec<G::Affine>, r: G::ScalarField) {
-//     let half = (f.len() + 1) / 2;
-//     let f_odd = f.iter().skip(1).step_by(2).copied().collect::<Vec<G::Affine>>();
-//     let f_even = f.iter_mut().step_by(2);
+fn fold_generators<G: CurveGroup>(
+    a: &[G::Affine],
+    b: &[G::Affine],
+    x: &G::ScalarField,
+    y: &G::ScalarField,
+) -> Vec<G::Affine> {
+    a.iter()
+        .zip(b.iter())
+        .map(|(&a, &b)| (a * x + b * y).into_affine())
+        .collect()
+}
 
-//     for (f_even, f_odd) in f_even.zip(f_odd) {
-//         *f_even = (*f_even + f_odd * r).into_affine();
-//     }
-//     f.drain(half..);
-// }
-
-fn round_message<F, G>(f: &mut Vec<F>, g: &mut Vec<G>) -> [G; 2]
+fn round_message<F, G>(f: &[F], g: &[G]) -> [G; 2]
 where
     F: PrimeField,
     G: AdditiveGroup<Scalar = F>,
 {
-    let mut a = G::zero();
-    let mut b = G::zero();
-    let f_zero = F::zero();
-    let g_zero = G::zero();
+    let n = (f.len() + 1) / 2;
+    let (f_left, f_right) = f.split_at(n);
+    let (g_left, g_right) = g.split_at(n);
 
-    for (f_pair, g_pair) in f.chunks(2).zip(g.chunks(2)) {
-        // The even part of the polynomial must always be unwrapped.
-        let f_even = f_pair[0];
-        let g_even = g_pair[0];
-        // For the right part, we might obtain zero if the degree is not a multiple of 2.
-        let f_odd = f_pair.get(1).unwrap_or(&f_zero);
-        let g_odd = g_pair.get(1).unwrap_or(&g_zero);
-        // Add to the partial sum
-        a += g_even * f_even;
-        b += *g_odd * f_even + g_even * f_odd;
-    }
+    let a = g_right.iter().zip(f_left.iter()).fold(G::zero(), |acc, (&g, &f)| acc + g * f);
+    let b = g_left.iter().zip(f_right.iter()).fold(G::zero(), |acc, (&g, &f)| acc + g * f);
+
     [a, b]
 }
+
+fn group_round_message<F, G>(f: &[F], g: &[G::Affine]) -> [G; 2]
+where
+    F: PrimeField,
+    G: CurveGroup<ScalarField = F>,
+{
+    let n = (f.len() + 1) / 2;
+    let (f_left, f_right) = f.split_at(n);
+    let (g_left, g_right) = g.split_at(n);
+
+    let a = g_right.iter().zip(f_left.iter()).fold(G::zero(), |acc, (&g, &f)| acc + g * f);
+    let b = g_left.iter().zip(f_right.iter()).fold(G::zero(), |acc, (&g, &f)| acc + g * f);
+
+    [a, b]
+}
+
+
 
 // fn group_round_message<G>(f: &mut Vec<G::ScalarField>, g: &mut Vec<G::Affine>) -> [G; 2]
 // where
@@ -85,16 +94,15 @@ where
 
         challenges.push(r);
 
-        let c = claim - a;
         // evaluate (a + bx + cx2) at r
-        claim = a + b * r + c * r.square();
+        claim = a + claim * r + b * r.square();
     }
     (challenges, claim)
 }
 
 pub(crate) enum Claim<G: CurveGroup> {
     Field(Vec<G::ScalarField>, Vec<G::ScalarField>),
-    Group(Vec<G::ScalarField>, Vec<G>),
+    Group(Vec<G::ScalarField>, Vec<G::Affine>),
 }
 
 impl<G: CurveGroup> Claim<G> {
@@ -108,12 +116,18 @@ impl<G: CurveGroup> Claim<G> {
     fn fold(&mut self, c: G::ScalarField) {
         match self {
             Claim::Field(a, b) => {
-                fold_inplace(a, c);
-                fold_inplace(b, c);
+                let n = (a.len() + 1) / 2;
+                let (a_left, a_right) = a.split_at_mut(n);
+                let (b_left, b_right) = b.split_at_mut(n);
+                let a = fold(a_left, a_right, &c, &G::ScalarField::zero());
+                let b = fold(b_left, b_right, &G::ScalarField::zero(), &c);
             }
             Claim::Group(a, b) => {
-                fold_inplace(a, c);
-                fold_inplace(b, c);
+                let n = (a.len() + 1) / 2;
+                let (a_left, a_right) = a.split_at_mut(n);
+                let (b_left, b_right) = b.split_at_mut(n);
+                let a = fold(a_left, a_right, &c, &G::ScalarField::zero());
+                let b = fold_generators::<G>(b_left, b_right, &G::ScalarField::zero(), &c);
             }
         }
     }
@@ -140,12 +154,12 @@ pub(crate) fn batch_sumcheck<G: CurveGroup, const N: usize>(
         for (batch_chal, claim) in batch_challenges.iter().zip(claims.iter_mut()) {
             match claim {
                 Claim::Field(v, w) => {
-                    let [a, b] = round_message(v, w);
+                    let [a, b] = round_message(&v, &w);
                     field_msg[0] += a * batch_chal;
                     field_msg[1] += b * batch_chal;
                 }
                 Claim::Group(v, w) => {
-                    let [a, b]: [G; 2] = round_message(v, w);
+                    let [a, b]: [G; 2] = group_round_message(&v, &w);
                     group_msg[0] += a * batch_chal;
                     group_msg[1] += b * batch_chal;
                 }
@@ -167,27 +181,32 @@ pub(crate) fn batch_sumcheck<G: CurveGroup, const N: usize>(
 }
 
 /// Prove the inner product <v, w> using a sumcheck
-pub fn sumcheck<F: PrimeField, G: AdditiveGroup<Scalar = F>>(
+pub fn sumcheck<F: PrimeField>(
     transcript: &mut IOPTranscript<F>,
     v: &[F],
-    w: &[G],
-) -> (Vec<F>, Vec<[G; 2]>) {
+    w: &[F],
+) -> ((F, F), Vec<F>, Vec<[F; 2]>) {
     let mut msgs = Vec::new();
     let mut chals = Vec::new();
     let mut v = v.to_vec();
     let mut w = w.to_vec();
     while w.len() + v.len() > 2 {
-        let msg = round_message(&mut v, &mut w);
+        let n = (v.len() + 1) / 2;
 
-        transcript.append_serializable_element(b"ab", &msg).unwrap();
+        let (v_left, v_right) = v.split_at(n);
+        let (w_left, w_right) = w.split_at(n);
+
+        let a = v_left.iter().zip(w_right.iter()).fold(F::zero(), |acc, (&x, &y)| acc + x * y);
+        let b = v_right.iter().zip(w_left.iter()).fold(F::zero(), |acc, (&x, &y)| acc + x * y);
+        transcript.append_serializable_element(b"ab", &[a, b]).unwrap();
         let c = transcript.get_and_append_challenge(b"r").unwrap();
-        fold_inplace(&mut v, c);
-        fold_inplace(&mut w, c);
+        v = fold(v_left, v_right, &F::one(), &c);
+        w = fold(w_left, w_right, &c, &F::one());
 
-        msgs.push(msg);
+        msgs.push([a, b]);
         chals.push(c);
     }
-    (chals, msgs)
+    ((v[0], w[0]), chals, msgs)
 }
 
 #[test]
@@ -209,20 +228,27 @@ fn test_sumcheck() {
     transcript_v.append_message(b"init", b"init").unwrap();
 
     // Prover side of sumcheck
-    let (expected_chals, messages) = sumcheck(&mut transcript_p, &v, &w);
+    let (folded_claims, expected_chals, messages) = sumcheck(&mut transcript_p, &v, &w);
 
     // Verifier side:
 
     // Get sumcheck random challenges and tensorcheck claim (random evaluation claim)
-    let (challenges, tensorcheck_claim) = reduce(&mut transcript_v, &messages, a);
+    let (mut challenges, tensorcheck_claim) = reduce(&mut transcript_v, &messages, a);
     assert_eq!(challenges, expected_chals);
+
+    assert_eq!(folded_claims.0 * folded_claims.1, tensorcheck_claim);
+
+    challenges.reverse();
+
     // Compute evaluation point from challenges
     let challenge_point = linalg::tensor(&challenges);
+    let mut r_challenge_point = challenge_point.clone();
+    r_challenge_point.reverse();
 
     // Evaluate "polynomial" v at challenge point
     let b = linalg::inner_product(&v, &challenge_point[..]);
     // Evaluate "polynomial" w at challenge point
-    let c = linalg::inner_product(&w, &challenge_point[..]);
+    let c = linalg::inner_product(&w, &r_challenge_point[..]);
 
     // Check that their product matches the tensorcheck claim
     assert_eq!(tensorcheck_claim, b * c);
@@ -245,17 +271,11 @@ fn test_batch_sumcheck() {
         Claim::Field(v.clone(), w.clone()),
         Claim::Group(
             v.clone(),
-            ck.vec_G
-                .iter()
-                .map(|x| EdwardsProjective::from(*x))
-                .collect(),
+            ck.vec_G.clone(),
         ),
         Claim::Group(
             w.clone(),
-            ck.vec_G
-                .iter()
-                .map(|x| EdwardsProjective::from(*x))
-                .collect(),
+            ck.vec_G.clone(),
         ),
     ];
     let batch_challenges = [F::from(1), F::from(2), F::from(3)];

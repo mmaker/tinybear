@@ -13,23 +13,6 @@ use crate::pedersen::CommitmentKey;
 use crate::sigma::SigmaProof;
 use crate::sumcheck::Claim;
 
-// A summary of the evaluations and proofs required in the protocol.
-#[derive(Default, CanonicalSerialize)]
-pub struct LinearEvaluationProofs<G: CurveGroup> {
-    // com(y_1)
-    pub Y_1: G,
-    // com(y_2)
-    pub Y_2: G,
-    // Proof for <m, h> = y
-    pub proof_m_h: SigmaProof<G>,
-    // Proof and partial result for merged scalar product: <g, tensor + c> = y_1 + c * y
-    pub proof_q_1_tensor: SigmaProof<G>,
-    // Proof and result for <f, tensor> = <w, A tensor> =  y_2
-    pub proof_f_tensor: SigmaProof<G>,
-    // Proof that Y = y1 * y2 (??)
-    pub proof_y: SigmaProof<G>,
-}
-
 #[derive(Default, CanonicalSerialize)]
 pub struct TinybearProof<G: CurveGroup> {
     // first message: witness commitment, frequencies commitment.
@@ -296,7 +279,7 @@ where
         .zip(&inverse_needles)
         .map(|((a, b), c)| *a + lin_batch_chal * G::ScalarField::from(*b) + lin_batch_chal2 * c)
         .collect::<Vec<_>>();
-    let claim_2 = Claim::Group(claim_2_lhs, ck.vec_G.iter().map(|x| G::from(*x)).collect());
+    let claim_2 = Claim::Group(claim_2_lhs, ck.vec_G.clone());
 
     // <q, twist . (A * w + c)>  = geom_series_twist + y
     let twists = linalg::powers(twist, helper::NEEDLES_LEN);
