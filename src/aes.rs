@@ -87,37 +87,32 @@ pub fn mixcolumns(mut state: [u8; 16]) -> [u8; 16] {
 
 pub fn keyschedule_trace<const N: usize, const R: usize>(key: &[u8]) -> KeySchTrace<R> {
     let mut trace = KeySchTrace::default();
-    debug_assert!((key.len() == 16 && R == 11) || (key.len() == 32 && R == 15));
+    let n_4: usize = N / 4;
 
-    trace.k_sch[1][0].copy_from_slice(&key[..4]);
-    trace.k_sch[2][0].copy_from_slice(&key[4..8]);
-    trace.k_sch[3][0].copy_from_slice(&key[8..12]);
-    trace.k_sch[4][0].copy_from_slice(&key[12..16]);
-    trace._keys[0] = key.try_into().expect("Invalid key length supplied.");
-
-    // this is not really needed
-    // just easier for alignment of trace and key schedule
-    trace._k_rot[0] = [0; 4];
-    trace.k_sch_s_box[0] = sbox(trace._k_rot[0]);
-
-    for i in 1..R {
-        trace._k_rot[i] = trace.k_sch[4][i - 1];
-        trace._k_rot[i].rotate_left(1);
-        trace.k_sch_s_box[i] = sbox(trace._k_rot[i]);
-
-        trace.k_sch[0][i] = xor(trace.k_sch_s_box[i], [RC[i], 0, 0, 0]);
-        trace.k_sch[1][i] = xor(trace.k_sch[1][i - 1], trace.k_sch[0][i]);
-        trace.k_sch[2][i] = xor(trace.k_sch[2][i - 1], trace.k_sch[1][i]);
-        trace.k_sch[3][i] = xor(trace.k_sch[3][i - 1], trace.k_sch[2][i]);
-        trace.k_sch[4][i] = xor(trace.k_sch[4][i - 1], trace.k_sch[3][i]);
-
-        // This is not really necessary, we reorder the output to make my life easier later.
-        // The commitment keys should be such that this can be emulated by the verifier
-        trace._keys[i][..4].copy_from_slice(trace.k_sch[1][i].as_ref());
-        trace._keys[i][4..8].copy_from_slice(trace.k_sch[2][i].as_ref());
-        trace._keys[i][8..12].copy_from_slice(trace.k_sch[3][i].as_ref());
-        trace._keys[i][12..16].copy_from_slice(trace.k_sch[4][i].as_ref());
+    for i in 0..N {
+        let k = i / 4;
+        let j = i % 4;
+        trace.k_sch[k][j].copy_from_slice(&key[i * 4..(i + 1) * 4]);
     }
+
+    for i in n_4..R {
+        let mut a = trace.k_sch[i-1][3];
+        if N > 6 && (i * 4) % N == 4 {
+            trace.k_sch_s_box[i] = sbox(a);
+            a = trace.k_sch_s_box[i];
+        } else {
+            a.rotate_left(1);
+            trace.k_sch_s_box[i] = sbox(a);
+            trace.k_sch_xor[i] = xor(trace.k_sch_s_box[i], [RC[i * 4 / N], 0, 0, 0]);
+            a = trace.k_sch_xor[i];
+        }
+
+        trace.k_sch[i][0] = xor(trace.k_sch[i - n_4][0], a);
+        trace.k_sch[i][1] = xor(trace.k_sch[i - n_4][1], trace.k_sch[i][0]);
+        trace.k_sch[i][2] = xor(trace.k_sch[i - n_4][2], trace.k_sch[i][1]);
+        trace.k_sch[i][3] = xor(trace.k_sch[i - n_4][3], trace.k_sch[i][2]);
+    }
+
     trace
 }
 
@@ -133,41 +128,14 @@ pub fn aes256_keyschedule(key: &[u8; 32]) -> [[u8; 16]; 15] {
 
 /// Naive implementation of AES's keyschedule.
 fn keyschedule<const N: usize, const R: usize>(key: &[u8]) -> [[u8; 16]; R] {
-    let mut k_sch = [[[0u8; 4]; 4]; R];
-    let mut k_sch_s_box = [[0u8; 4]; R];
-    let mut k_sch_xor = [[0u8; 4]; R];
-
-    for i in 0..N {
-        let k = i / 4;
-        let j = i % 4;
-        k_sch[k][j].copy_from_slice(&key[i * 4..(i + 1) * 4]);
-    }
-
-    let n_4 = N / 4;
-    for i in n_4..R {
-        let mut a = k_sch[i-1][3];
-        if N > 6 && (i * 4) % N == 4 {
-            k_sch_s_box[i] = sbox(a);
-            a = k_sch_s_box[i];
-        } else {
-            a.rotate_left(1);
-            k_sch_s_box[i] = sbox(a);
-            k_sch_xor[i] = xor(k_sch_s_box[i], [RC[i * 4 / N], 0, 0, 0]);
-            a = k_sch_xor[i];
-        }
-
-        k_sch[i][0] = xor(k_sch[i - n_4][0], a);
-        k_sch[i][1] = xor(k_sch[i - n_4][1], k_sch[i][0]);
-        k_sch[i][2] = xor(k_sch[i - n_4][2], k_sch[i][1]);
-        k_sch[i][3] = xor(k_sch[i - n_4][3], k_sch[i][2]);
-    }
+    let trace = keyschedule_trace::<N, R>(key);
 
     let mut round_keys = [[0u8; 16]; R];
     for i in 0..R {
-        round_keys[i][..4].copy_from_slice(&k_sch[i][0]);
-        round_keys[i][4..8].copy_from_slice(&k_sch[i][1]);
-        round_keys[i][8..12].copy_from_slice(&k_sch[i][2]);
-        round_keys[i][12..16].copy_from_slice(&k_sch[i][3]);
+        round_keys[i][..4].copy_from_slice(&trace.k_sch[i][0]);
+        round_keys[i][4..8].copy_from_slice(&trace.k_sch[i][1]);
+        round_keys[i][8..12].copy_from_slice(&trace.k_sch[i][2]);
+        round_keys[i][12..16].copy_from_slice(&trace.k_sch[i][3]);
     }
     round_keys
 }
@@ -224,19 +192,17 @@ pub fn transpose_inplace<T>(list: &mut [T]) {
 }
 
 pub struct KeySchTrace<const R: usize> {
-    pub _k_rot: [[u8; 4]; R],
+    pub k_sch_xor: [[u8; 4]; R],
     pub k_sch_s_box: [[u8; 4]; R],
-    pub k_sch: [[[u8; 4]; R]; 5],
-    pub _keys: [[u8; 16]; R],
+    pub k_sch: [[[u8; 4]; 4]; R],
 }
 
 impl<const R: usize> Default for KeySchTrace<R> {
     fn default() -> Self {
         Self {
-            _k_rot: [[0u8; 4]; R],
             k_sch_s_box: [[0u8; 4]; R],
-            k_sch: [[[0u8; 4]; R]; 5],
-            _keys: [[0u8; 16]; R],
+            k_sch: [[[0u8; 4]; 4]; R],
+            k_sch_xor: [[0u8; 4]; R],
         }
     }
 }
@@ -385,19 +351,6 @@ fn test_aes_round_trace() {
     assert_eq!(got.start, expected);
 }
 
-#[test]
-fn test_keyschedule_trace() {
-    let key = [0u8; 16];
-    let last_expected = *b"\xb4\xef\x5b\xcb\x3e\x92\xe2\x11\x23\xe9\x51\xcf\x6f\x8f\x18\x8e";
-    let trace = keyschedule_trace::<4, 11>(&key);
-    let keys = trace._keys;
-    assert_eq!(&trace.k_sch[1][10], &last_expected[..4]);
-    assert_eq!(&trace.k_sch[2][10], &last_expected[4..8]);
-    assert_eq!(&trace.k_sch[3][10], &last_expected[8..12]);
-    assert_eq!(&trace.k_sch[4][10], &last_expected[12..]);
-    assert_eq!(keys[10], last_expected);
-    assert_eq!(keys[0], key);
-}
 
 #[test]
 fn test_aes128_keyschedule() {
