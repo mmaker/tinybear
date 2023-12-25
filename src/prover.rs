@@ -445,11 +445,8 @@ fn aes_prove<G: CurveGroup, const R: usize>(
     let lin_opening_claim = Y_opening
         + (ipa_Q_fold_opening + c_q * Y_opening) * c_lin_batch_vec[0]
         + ipa_F_twist_fold_opening * c_lin_batch_vec[1];
-    let lin_sumcheck_opening = sumcheck::reduce_with_challenges(
-        &lin_openings,
-        &cs_lin,
-        lin_opening_claim,
-    );
+    let lin_sumcheck_opening =
+        sumcheck::reduce_with_challenges(&lin_openings, &cs_lin, lin_opening_claim);
     let lin_M_fold_opening = lin_h_fold.inverse().unwrap()
         * (lin_sumcheck_opening
             - lin_ipa_cs_c_q_fold * lin_Q_fold_opening * c_lin_batch_vec[0]

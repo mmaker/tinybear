@@ -87,10 +87,7 @@ pub fn mixcolumns(mut state: [u8; 16]) -> [u8; 16] {
 
 pub fn keyschedule_trace<const N: usize, const R: usize>(key: &[u8]) -> KeySchTrace<R> {
     let mut trace = KeySchTrace::default();
-    debug_assert!(
-        (key.len() == 16 && R == 11) ||
-        (key.len() == 32 && R == 15)
-    );
+    debug_assert!((key.len() == 16 && R == 11) || (key.len() == 32 && R == 15));
 
     trace.k_sch[1][0].copy_from_slice(&key[..4]);
     trace.k_sch[2][0].copy_from_slice(&key[4..8]);
@@ -136,35 +133,39 @@ pub fn aes256_keyschedule(key: &[u8; 32]) -> [[u8; 16]; 15] {
 
 /// Naive implementation of AES's keyschedule.
 fn keyschedule<const N: usize, const R: usize>(key: &[u8]) -> [[u8; 16]; R] {
-    let mut scheduled = vec![[0u8; 4]; R * 4];
+    let mut k_sch = vec![[0u8; 4]; R * 4];
+    let mut k_sch_s_box = [[0u8; 4]; R];
+    let mut k_sch_xor = [[0u8; 4]; R];
 
     for i in 0..N {
-        scheduled[i].copy_from_slice(&key[i * 4..(i + 1) * 4]);
+        k_sch[i].copy_from_slice(&key[i * 4..(i + 1) * 4]);
     }
     for i in N / 4..R {
-        let i = i * 4;
-        let mut a = scheduled[i - 1];
-        if N > 6 && i % N == 4 {
-            a = sbox(a);
+        let mut a = k_sch[i * 4 - 1];
+        if N > 6 && (i * 4) % N == 4 {
+            k_sch_s_box[i] = sbox(a);
+            a = k_sch_s_box[i];
         } else {
             a.rotate_left(1);
-            a = sbox(a);
-            a = xor(a, [RC[i / N], 0, 0, 0]);
+            k_sch_s_box[i] = sbox(a);
+            k_sch_xor[i] = xor(k_sch_s_box[i], [RC[i * 4 / N], 0, 0, 0]);
+            a = k_sch_xor[i];
         }
 
-        scheduled[i + 0] = xor(scheduled[i + 0 - N], a);
-        scheduled[i + 1] = xor(scheduled[i + 1 - N], scheduled[i]);
-        scheduled[i + 2] = xor(scheduled[i + 2 - N], scheduled[i + 1]);
-        scheduled[i + 3] = xor(scheduled[i + 3 - N], scheduled[i + 2]);
+        let i = i * 4;
+
+        k_sch[i + 0] = xor(k_sch[i + 0 - N], a);
+        k_sch[i + 1] = xor(k_sch[i + 1 - N], k_sch[i]);
+        k_sch[i + 2] = xor(k_sch[i + 2 - N], k_sch[i + 1]);
+        k_sch[i + 3] = xor(k_sch[i + 3 - N], k_sch[i + 2]);
     }
 
-    // this is just a memory transmute in safe rust.
     let mut round_keys = [[0u8; 16]; R];
     for i in 0..R {
-        round_keys[i][..4].copy_from_slice(&scheduled[i * 4]);
-        round_keys[i][4..8].copy_from_slice(&scheduled[i * 4 + 1]);
-        round_keys[i][8..12].copy_from_slice(&scheduled[i * 4 + 2]);
-        round_keys[i][12..16].copy_from_slice(&scheduled[i * 4 + 3]);
+        round_keys[i][..4].copy_from_slice(&k_sch[i * 4]);
+        round_keys[i][4..8].copy_from_slice(&k_sch[i * 4 + 1]);
+        round_keys[i][8..12].copy_from_slice(&k_sch[i * 4 + 2]);
+        round_keys[i][12..16].copy_from_slice(&k_sch[i * 4 + 3]);
     }
     round_keys
 }
@@ -221,10 +222,10 @@ pub fn transpose_inplace<T>(list: &mut [T]) {
 }
 
 pub struct KeySchTrace<const R: usize> {
-    pub _k_rot: [[u8; 4]; R],
-    pub k_sch_s_box: [[u8; 4]; R],
-    pub k_sch: [[[u8; 4]; R]; 5],
-    pub _keys: [[u8; 16]; R],
+   pub _k_rot: [[u8; 4]; R],
+   pub k_sch_s_box: [[u8; 4]; R],
+   pub k_sch: [[[u8; 4]; R]; 5],
+   pub _keys: [[u8; 16]; R],
 }
 
 impl<const R: usize> Default for KeySchTrace<R> {

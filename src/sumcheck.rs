@@ -130,8 +130,6 @@ pub fn batch_sumcheck<G: CurveGroup, const N: usize>(
     (chals, msgs, openings)
 }
 
-
-
 /// Prove the inner product <v, w> using a sumcheck
 #[allow(non_snake_case)]
 pub fn sumcheck<G: CurveGroup>(

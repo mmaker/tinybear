@@ -1,6 +1,5 @@
 #![forbid(unsafe_code)]
 
-
 pub mod aes;
 
 /// Helper module for the prover and verifier.

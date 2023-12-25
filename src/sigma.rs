@@ -33,11 +33,9 @@ pub fn mul_prove<G: CurveGroup>(
         .collect::<Vec<_>>();
     let K = vec![
         G::msm_unchecked(&[ck.G, ck.H], &vec_k[..2]),
-        G::msm_unchecked(&[B.into(), ck.H], &[vec_k[0], vec_k[2]])
+        G::msm_unchecked(&[B.into(), ck.H], &[vec_k[0], vec_k[2]]),
     ];
-    transcript
-        .append_serializable_element(b"k_gg", &K)
-        .unwrap();
+    transcript.append_serializable_element(b"k_gg", &K).unwrap();
     // Get challenges from verifier
     let c = transcript.get_and_append_challenge(b"c").unwrap();
 
@@ -67,8 +65,16 @@ pub fn mul_verify<G: CurveGroup>(
 
     // Get challenges from verifier
     let c = transcript.get_and_append_challenge(b"c").unwrap();
-    if proof.commitment[0] == G::msm_unchecked(&[(-A).into(), ck.G, ck.H],   &[c, proof.response[0], proof.response[1]]) &&
-       proof.commitment[1] == G::msm_unchecked(&[(-C).into(), B.into(), ck.H],   &[c, proof.response[0], proof.response[2]])
+    if proof.commitment[0]
+        == G::msm_unchecked(
+            &[(-A).into(), ck.G, ck.H],
+            &[c, proof.response[0], proof.response[1]],
+        )
+        && proof.commitment[1]
+            == G::msm_unchecked(
+                &[(-C).into(), B.into(), ck.H],
+                &[c, proof.response[0], proof.response[2]],
+            )
     {
         Ok(())
     } else {
@@ -122,14 +128,15 @@ pub fn lin_prove<G: CurveGroup>(
     vec_k.extend_from_slice(&[kappa_1, kappa_2]);
     let K = vec![K_1, K_2];
 
-    transcript
-        .append_serializable_element(b"k_gg", &K)
-        .unwrap();
+    transcript.append_serializable_element(b"k_gg", &K).unwrap();
 
     // Get challenges from verifier
     let c = transcript.get_and_append_challenge(b"c").unwrap();
     // Compute prover's response
-    let witness = x_vec.iter().chain(core::iter::once(&X_opening)).chain(core::iter::once(&Y_opening));
+    let witness = x_vec
+        .iter()
+        .chain(core::iter::once(&X_opening))
+        .chain(core::iter::once(&Y_opening));
     for (z_i, w_i) in vec_k.iter_mut().zip(witness) {
         *z_i += c * w_i;
     }
@@ -156,7 +163,7 @@ pub fn lin_verify<G: CurveGroup>(
 
     proof: &SigmaProof<G>,
 ) -> Result<(), ()> {
-    let n = proof.response.len()-2;
+    let n = proof.response.len() - 2;
     // debug_assert!(n < vec_a.len());
 
     // XXX. missing statement
@@ -167,14 +174,15 @@ pub fn lin_verify<G: CurveGroup>(
     // Get challenges from verifier
     let c = transcript.get_and_append_challenge(b"c").unwrap();
 
-    let z_response = G::msm_unchecked(&ck.vec_G[..n], &proof.response[..n]) + ck.H * proof.response[n];
-    let za_response = ck.G * linalg::inner_product(&proof.response[..n], &vec_a[..n]) + ck.H * proof.response[n+1];
+    let z_response =
+        G::msm_unchecked(&ck.vec_G[..n], &proof.response[..n]) + ck.H * proof.response[n];
+    let za_response = ck.G * linalg::inner_product(&proof.response[..n], &vec_a[..n])
+        + ck.H * proof.response[n + 1];
 
     transcript
         .append_serializable_element(b"response", &[proof.response.clone()])
         .unwrap();
-    if z_response == proof.commitment[0] + X.mul(c)
-        && za_response == proof.commitment[1] + Y.mul(c)
+    if z_response == proof.commitment[0] + X.mul(c) && za_response == proof.commitment[1] + Y.mul(c)
     {
         Ok(())
     } else {
@@ -216,7 +224,15 @@ fn test_lineval_correctness() {
     let (Y, Y_opening) = commit_hiding(rng, &ck, &[y]);
 
     // Let's prove!
-    let sigma_proof = lin_prove(rng, &mut transcript_p, &ck, &vec_x, X_opening, Y_opening, &vec_a);
+    let sigma_proof = lin_prove(
+        rng,
+        &mut transcript_p,
+        &ck,
+        &vec_x,
+        X_opening,
+        Y_opening,
+        &vec_a,
+    );
 
     assert!(lin_verify(&mut transcript_v, &ck, &vec_a, &X, &Y, &sigma_proof).is_ok());
 }

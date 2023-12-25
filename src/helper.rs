@@ -12,7 +12,6 @@ pub(super) struct AesWitnessRegions {
     pub needles_len: usize,
 }
 
-
 /// The witness is structured as follows:
 ///
 /// ```text
@@ -264,7 +263,6 @@ pub(crate) fn aes128_trace_to_needles_map<F: Field>(
 ) -> (Vec<F>, F) {
     trace_to_needles_map::<F, 11>(output, src, challenges)
 }
-
 
 #[test]
 fn test_trace_to_needles_map() {
