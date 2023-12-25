@@ -12,6 +12,7 @@ pub(super) struct AesWitnessRegions {
     pub needles_len: usize,
 }
 
+
 /// The witness is structured as follows:
 ///
 /// ```text

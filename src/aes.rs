@@ -85,22 +85,25 @@ pub fn mixcolumns(mut state: [u8; 16]) -> [u8; 16] {
     state
 }
 
-pub fn keyschedule_trace(key: &[u8; 16]) -> KeySchTrace {
+pub fn keyschedule_trace<const N: usize, const R: usize>(key: &[u8]) -> KeySchTrace<R> {
     let mut trace = KeySchTrace::default();
-    let mut output = [[0u8; 16]; 11];
+    debug_assert!(
+        (key.len() == 16 && R == 11) ||
+        (key.len() == 32 && R == 15)
+    );
 
     trace.k_sch[1][0].copy_from_slice(&key[..4]);
     trace.k_sch[2][0].copy_from_slice(&key[4..8]);
     trace.k_sch[3][0].copy_from_slice(&key[8..12]);
     trace.k_sch[4][0].copy_from_slice(&key[12..16]);
-    output[0] = *key;
+    trace._keys[0] = key.try_into().expect("Invalid key length supplied.");
 
     // this is not really needed
     // just easier for alignment of trace and key schedule
     trace._k_rot[0] = [0; 4];
     trace.k_sch_s_box[0] = sbox(trace._k_rot[0]);
 
-    for i in 1..11 {
+    for i in 1..R {
         trace._k_rot[i] = trace.k_sch[4][i - 1];
         trace._k_rot[i].rotate_left(1);
         trace.k_sch_s_box[i] = sbox(trace._k_rot[i]);
@@ -113,12 +116,11 @@ pub fn keyschedule_trace(key: &[u8; 16]) -> KeySchTrace {
 
         // This is not really necessary, we reorder the output to make my life easier later.
         // The commitment keys should be such that this can be emulated by the verifier
-        output[i][..4].copy_from_slice(trace.k_sch[1][i].as_ref());
-        output[i][4..8].copy_from_slice(trace.k_sch[2][i].as_ref());
-        output[i][8..12].copy_from_slice(trace.k_sch[3][i].as_ref());
-        output[i][12..16].copy_from_slice(trace.k_sch[4][i].as_ref());
+        trace._keys[i][..4].copy_from_slice(trace.k_sch[1][i].as_ref());
+        trace._keys[i][4..8].copy_from_slice(trace.k_sch[2][i].as_ref());
+        trace._keys[i][8..12].copy_from_slice(trace.k_sch[3][i].as_ref());
+        trace._keys[i][12..16].copy_from_slice(trace.k_sch[4][i].as_ref());
     }
-    trace._keys = output;
     trace
 }
 
@@ -218,12 +220,22 @@ pub fn transpose_inplace<T>(list: &mut [T]) {
     }
 }
 
-#[derive(Default)]
-pub struct KeySchTrace {
-    pub _k_rot: [[u8; 4]; 11],
-    pub k_sch_s_box: [[u8; 4]; 11],
-    pub k_sch: [[[u8; 4]; 11]; 5],
-    pub _keys: [[u8; 16]; 11],
+pub struct KeySchTrace<const R: usize> {
+    pub _k_rot: [[u8; 4]; R],
+    pub k_sch_s_box: [[u8; 4]; R],
+    pub k_sch: [[[u8; 4]; R]; 5],
+    pub _keys: [[u8; 16]; R],
+}
+
+impl<const R: usize> Default for KeySchTrace<R> {
+    fn default() -> Self {
+        Self {
+            _k_rot: [[0u8; 4]; R],
+            k_sch_s_box: [[0u8; 4]; R],
+            k_sch: [[[0u8; 4]; R]; 5],
+            _keys: [[0u8; 16]; R],
+        }
+    }
 }
 
 #[derive(Default)]
@@ -374,7 +386,7 @@ fn test_aes_round_trace() {
 fn test_keyschedule_trace() {
     let key = [0u8; 16];
     let last_expected = *b"\xb4\xef\x5b\xcb\x3e\x92\xe2\x11\x23\xe9\x51\xcf\x6f\x8f\x18\x8e";
-    let trace = keyschedule_trace(&key);
+    let trace = keyschedule_trace::<4, 11>(&key);
     let keys = trace._keys;
     assert_eq!(&trace.k_sch[1][10], &last_expected[..4]);
     assert_eq!(&trace.k_sch[2][10], &last_expected[4..8]);
