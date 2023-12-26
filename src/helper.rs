@@ -90,7 +90,7 @@ pub const AES256REG: AesWitnessRegions = aes_offsets::<15>();
 /// turns it into a continuous vector.
 /// Each 8-bit byte from the witness is split into two 4-bit parts to simplify
 /// the lookup operations.
-pub(crate) fn vectorize_witness<const R: usize>(witness: &aes::Witness) -> Vec<u8> {
+pub(crate) fn vectorize_witness<const R: usize>(witness: &aes::AesCipherTrace) -> Vec<u8> {
     let mut w = Vec::<u8>::new();
     let registry = aes_offsets::<R>();
 
@@ -280,7 +280,7 @@ fn test_trace_to_needles_map() {
         0xE7u8, 0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69,
         0x0C,
     ];
-    let witness = aes::aes128_trace(message, key);
+    let witness = aes::AesCipherTrace::new_aes128(message, key);
     // actual length needed is: ceil(log(OFFSETS.cipher_len * 2))
     let challenges = (0..11).map(|_| F::rand(rng)).collect::<Vec<_>>();
     let vector = linalg::tensor(&challenges);

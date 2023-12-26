@@ -38,6 +38,27 @@ where
     [a, b]
 }
 
+fn group_round_message<F, G>(f: &[F], g: &[G::Affine]) -> [G; 2]
+where
+    F: PrimeField,
+    G: CurveGroup<ScalarField = F>,
+{
+    let n = (f.len() + 1) / 2;
+    let (f_left, f_right) = f.split_at(n);
+    let (g_left, g_right) = g.split_at(n);
+
+    let a = g_right
+        .iter()
+        .zip(f_left.iter())
+        .fold(G::zero(), |acc, (&g, &f)| acc + g * f);
+    let b = g_left
+        .iter()
+        .zip(f_right.iter())
+        .fold(G::zero(), |acc, (&g, &f)| acc + g * f);
+
+    [a, b]
+}
+
 pub fn reduce_with_challenges<G: AdditiveGroup>(
     messages: &[[G; 2]],
     challenges: &[G::Scalar],

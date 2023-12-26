@@ -85,36 +85,6 @@ pub fn mixcolumns(mut state: [u8; 16]) -> [u8; 16] {
     state
 }
 
-pub fn keyschedule_trace<const N: usize, const R: usize>(key: &[u8]) -> KeySchTrace<R> {
-    let mut trace = KeySchTrace::default();
-    let n_4: usize = N / 4;
-
-    for i in 0..N {
-        let k = i / 4;
-        let j = i % 4;
-        trace.k_sch[k][j].copy_from_slice(&key[i * 4..(i + 1) * 4]);
-    }
-
-    for i in n_4..R {
-        let mut a = trace.k_sch[i-1][3];
-        if N > 6 && (i * 4) % N == 4 {
-            trace.k_sch_s_box[i] = sbox(a);
-            a = trace.k_sch_s_box[i];
-        } else {
-            a.rotate_left(1);
-            trace.k_sch_s_box[i] = sbox(a);
-            trace.k_sch_xor[i] = xor(trace.k_sch_s_box[i], [RC[i * 4 / N], 0, 0, 0]);
-            a = trace.k_sch_xor[i];
-        }
-
-        trace.k_sch[i][0] = xor(trace.k_sch[i - n_4][0], a);
-        trace.k_sch[i][1] = xor(trace.k_sch[i - n_4][1], trace.k_sch[i][0]);
-        trace.k_sch[i][2] = xor(trace.k_sch[i - n_4][2], trace.k_sch[i][1]);
-        trace.k_sch[i][3] = xor(trace.k_sch[i - n_4][3], trace.k_sch[i][2]);
-    }
-
-    trace
-}
 
 #[inline]
 pub fn aes128_keyschedule(key: &[u8; 16]) -> [[u8; 16]; 11] {
@@ -128,7 +98,7 @@ pub fn aes256_keyschedule(key: &[u8; 32]) -> [[u8; 16]; 15] {
 
 /// Naive implementation of AES's keyschedule.
 fn keyschedule<const N: usize, const R: usize>(key: &[u8]) -> [[u8; 16]; R] {
-    let trace = keyschedule_trace::<N, R>(key);
+    let trace = AesKeySchTrace::<R, N>::new(key);
 
     let mut round_keys = [[0u8; 16]; R];
     for i in 0..R {
@@ -164,11 +134,13 @@ fn aes<const L: usize, const N: usize, const R: usize>(
 }
 
 /// Naive implementation of AES-128
+#[inline]
 pub fn aes128(message: [u8; 16], key: [u8; 16]) -> [u8; 16] {
     aes::<16, 4, 11>(message, key)
 }
 
 /// Naive implementation of AES-256
+#[inline]
 pub fn aes256(message: [u8; 16], key: [u8; 32]) -> [u8; 16] {
     aes::<32, 8, 15>(message, key)
 }
@@ -191,19 +163,60 @@ pub fn transpose_inplace<T>(list: &mut [T]) {
     }
 }
 
-pub struct KeySchTrace<const R: usize> {
+pub struct AesKeySchTrace<const R: usize, const N: usize> {
     pub k_sch_xor: [[u8; 4]; R],
     pub k_sch_s_box: [[u8; 4]; R],
     pub k_sch: [[[u8; 4]; 4]; R],
 }
 
-impl<const R: usize> Default for KeySchTrace<R> {
+impl<const R: usize, const N: usize> Default for AesKeySchTrace<R, N> {
     fn default() -> Self {
         Self {
             k_sch_s_box: [[0u8; 4]; R],
             k_sch: [[[0u8; 4]; 4]; R],
             k_sch_xor: [[0u8; 4]; R],
         }
+    }
+}
+
+impl<const R: usize, const N: usize> AesKeySchTrace<R, N> {
+    pub fn new_aes128(key: &[u8; 16]) -> AesKeySchTrace<11, 4> {
+        AesKeySchTrace::new(key)
+    }
+
+    pub fn new_aes256(key: &[u8; 32]) -> AesKeySchTrace<15, 8> {
+        AesKeySchTrace::new(key)
+    }
+
+    pub fn new(key: &[u8]) -> Self {
+        let mut trace = AesKeySchTrace::default();
+        let n_4: usize = N / 4;
+
+        for i in 0..N {
+            let k = i / 4;
+            let j = i % 4;
+            trace.k_sch[k][j].copy_from_slice(&key[i * 4..(i + 1) * 4]);
+        }
+
+        for i in n_4..R {
+            let mut a = trace.k_sch[i - 1][3];
+            if N > 6 && (i * 4) % N == 4 {
+                trace.k_sch_s_box[i] = sbox(a);
+                a = trace.k_sch_s_box[i];
+            } else {
+                a.rotate_left(1);
+                trace.k_sch_s_box[i] = sbox(a);
+                trace.k_sch_xor[i] = xor(trace.k_sch_s_box[i], [RC[i * 4 / N], 0, 0, 0]);
+                a = trace.k_sch_xor[i];
+            }
+
+            trace.k_sch[i][0] = xor(trace.k_sch[i - n_4][0], a);
+            trace.k_sch[i][1] = xor(trace.k_sch[i - n_4][1], trace.k_sch[i][0]);
+            trace.k_sch[i][2] = xor(trace.k_sch[i - n_4][2], trace.k_sch[i][1]);
+            trace.k_sch[i][3] = xor(trace.k_sch[i - n_4][3], trace.k_sch[i][2]);
+        }
+
+        trace
     }
 }
 
@@ -228,7 +241,7 @@ pub struct RoundTrace {
 /// k_sch: 44 * 5
 /// m_col: 144 * 5
 #[derive(Default)]
-pub struct Witness {
+pub struct AesCipherTrace {
     pub message: [u8; 16],
     pub key: [u8; 16],
     // cipher variables
@@ -244,7 +257,7 @@ pub struct Witness {
     pub _aux_m_col: [Vec<u8>; 4],
 }
 
-impl Witness {
+impl AesCipherTrace {
     pub fn add_round(&mut self, round_trace: &RoundTrace) {
         self._s_row.extend(&round_trace._s_row);
         self.s_box.extend(&round_trace.s_box);
@@ -259,20 +272,25 @@ impl Witness {
         self.s_box.extend(final_s_box);
         self.output = output;
     }
+
+    pub fn new_aes128(message: [u8; 16], key: [u8; 16]) -> AesCipherTrace {
+        let round_keys = aes128_keyschedule(&key);
+        aes_trace(message, &round_keys)
+    }
+
+    pub fn new_aes256(message: [u8; 16], key: [u8; 32]) -> AesCipherTrace {
+        let round_keys = aes256_keyschedule(&key);
+        aes_trace(message, &round_keys)
+    }
 }
 
-pub fn aes128_trace(message: [u8; 16], key: [u8; 16]) -> Witness {
-    let round_keys = aes128_keyschedule(&key);
-    aes_trace(message, &round_keys)
-}
 
-pub fn aes256_trace(message: [u8; 16], key: [u8; 32]) -> Witness {
-    let round_keys = aes256_keyschedule(&key);
-    aes_trace(message, &round_keys)
-}
 
-pub fn aes_trace<const R: usize>(message: [u8; 16], round_keys: &[[u8; 16]; R]) -> Witness {
-    let mut witness = Witness::default();
+pub(crate) fn aes_trace<const R: usize>(
+    message: [u8; 16],
+    round_keys: &[[u8; 16]; R],
+) -> AesCipherTrace {
+    let mut witness = AesCipherTrace::default();
 
     witness.message = message;
     witness.key = round_keys[0];
@@ -348,7 +366,6 @@ fn test_aes_round_trace() {
     assert_eq!(naive, expected);
     assert_eq!(got.start, expected);
 }
-
 
 #[test]
 fn test_aes128_keyschedule() {
@@ -487,7 +504,7 @@ fn test_aes128() {
     let got = aes128(message, key);
     let expected: [u8; 16] = *b"i\xc4\xe0\xd8j{\x040\xd8\xcd\xb7\x80p\xb4\xc5Z";
     assert_eq!(got, expected);
-    let witness = aes128_trace(message, key);
+    let witness = AesCipherTrace::new_aes128(message, key);
     assert_eq!(witness.output, expected);
 }
 
@@ -532,7 +549,7 @@ fn test_aes128_wiring() {
     let got = aes128(message, key);
     let expected: [u8; 16] = *b"i\xc4\xe0\xd8j{\x040\xd8\xcd\xb7\x80p\xb4\xc5Z";
     assert_eq!(got, expected);
-    let witness = aes128_trace(message, key);
+    let witness = AesCipherTrace::new_aes128(message, key);
     assert_eq!(witness.output, expected);
 
     // check a bit more in-depth the trace.

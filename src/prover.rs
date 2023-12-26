@@ -10,7 +10,7 @@ use rand::{CryptoRng, RngCore};
 use transcript::IOPTranscript;
 
 use super::{aes, helper, linalg, lookup, pedersen, sigma, sumcheck, u8msm};
-use crate::aes::KeySchTrace;
+use crate::aes::AesKeySchTrace;
 use crate::pedersen::CommitmentKey;
 use crate::sigma::SigmaProof;
 
@@ -110,21 +110,21 @@ fn compute_z<F: Field>(w: &[u8], m: &[u8], rk: &[[u8; 16]]) -> Vec<F> {
     w.iter().copied().chain(m).chain(rk).map(F::from).collect()
 }
 
-fn get_r2j_witness(witness: &aes::Witness) -> Vec<(u8, u8)> {
+fn get_r2j_witness(witness: &aes::AesCipherTrace) -> Vec<(u8, u8)> {
     let xs = witness.s_box.iter().copied();
     let ys = witness.m_col[0].iter().copied();
     xs.zip(ys).collect()
 }
 
 // sbox needles to lookup in table x -> SBOX[x]
-fn get_s_box_witness(witness: &aes::Witness) -> Vec<(u8, u8)> {
+fn get_s_box_witness(witness: &aes::AesCipherTrace) -> Vec<(u8, u8)> {
     let s_box = witness._s_row.iter().zip(&witness.s_box);
     // let k_sch_s_box = witness._k_rot.iter().zip(&witness.k_sch_s_box);
     s_box.map(|(&x, &y)| (x, y)).collect()
 }
 
 // xor needles to lookup in table (x, y, z = x ^ y)
-fn get_xor_witness(witness: &aes::Witness) -> Vec<(u8, u8, u8)> {
+fn get_xor_witness(witness: &aes::AesCipherTrace) -> Vec<(u8, u8, u8)> {
     let mut witness_xor = Vec::new();
     // m_col_xor
     for i in 0..4 {
@@ -163,11 +163,11 @@ fn get_xor_witness(witness: &aes::Witness) -> Vec<(u8, u8, u8)> {
     witness_xor
 }
 
-fn ks_get_xor_witness<const N: usize, const R: usize>(trace: &KeySchTrace<R>) -> Vec<(u8, u8, u8)> {
+fn ks_get_xor_witness<const N: usize, const R: usize>(trace: &AesKeySchTrace<R, N>) -> Vec<(u8, u8, u8)> {
     let n_4 = N / 4;
     let mut witness_xor = Vec::new();
 
-    for i in n_4 .. R {
+    for i in n_4..R {
         let zs = trace.k_sch[i][1..4].iter().flatten().copied();
         let xs = trace.k_sch[i - n_4][1..4].iter().flatten().copied();
         let ys = trace.k_sch[i][0..3].iter().flatten().copied();
@@ -176,7 +176,7 @@ fn ks_get_xor_witness<const N: usize, const R: usize>(trace: &KeySchTrace<R>) ->
         witness_xor.extend(new_witness)
     }
 
-    for i in n_4 .. R {
+    for i in n_4..R {
         let zs = trace.k_sch[i][0].iter().copied();
         let xs = trace.k_sch[i - n_4][0].iter().copied();
         let ys = trace.k_sch_xor[i].iter().copied();
@@ -206,7 +206,7 @@ fn ks_get_xor_witness<const N: usize, const R: usize>(trace: &KeySchTrace<R>) ->
 /// Compute needles and frequencies
 /// Return (needles, frequencies, frequencies_u8)
 pub fn compute_needles_and_frequencies<F: Field>(
-    witness: &aes::Witness,
+    witness: &aes::AesCipherTrace,
     [r_xor, r2_xor, r_sbox, r_rj2]: [F; 4],
 ) -> (Vec<F>, Vec<F>, Vec<u8>) {
     // Generate the witness.
