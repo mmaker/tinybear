@@ -262,8 +262,6 @@ impl Witness {
 }
 
 pub fn aes128_trace(message: [u8; 16], key: [u8; 16]) -> Witness {
-    // let k_sch_trace = keyschedule_trace(&key);
-    // let round_keys = k_sch_trace._keys;
     let round_keys = aes128_keyschedule(&key);
     aes_trace(message, &round_keys)
 }

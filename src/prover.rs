@@ -10,6 +10,7 @@ use rand::{CryptoRng, RngCore};
 use transcript::IOPTranscript;
 
 use super::{aes, helper, linalg, lookup, pedersen, sigma, sumcheck, u8msm};
+use crate::aes::KeySchTrace;
 use crate::pedersen::CommitmentKey;
 use crate::sigma::SigmaProof;
 
@@ -159,33 +160,48 @@ fn get_xor_witness(witness: &aes::Witness) -> Vec<(u8, u8, u8)> {
         let new_witness = xs.zip(zs).map(|(x, z)| (x, x ^ z, z));
         witness_xor.extend(new_witness);
     }
-
-    // k_sch_xor
-    // for i in 0..witness.k_sch[0].len() {
-    //     let (x, z) = (witness.k_sch_s_box[i], witness.k_sch[0][i]);
-    //     let y = x ^ z; // this is the round constant
-    //     witness_xor.push((x, y, z))
-    // }
-    // for x in 0..4 {
-    //     for i in 4..witness.k_sch[x + 1].len() {
-    //         let (x, y, z) = (
-    //             witness.k_sch[x][i],
-    //             witness.k_sch[x + 1][i - 4],
-    //             witness.k_sch[x + 1][i],
-    //         );
-    //         debug_assert_eq!(z, x ^ y);
-    //         witness_xor.push((x, y, z))
-    //     }
-    // }
-    // final_round_xor
-    // {
-    //     let xs = witness.s_box.iter().copied();
-    //     let zs = witness.output.iter().copied();
-    //     let new_witness = xs.zip(zs).map(|(x, z)| (x, x ^ z, z));
-    //     witness_xor.extend(new_witness)
-    // }
     witness_xor
 }
+
+fn ks_get_xor_witness<const N: usize, const R: usize>(trace: &KeySchTrace<R>) -> Vec<(u8, u8, u8)> {
+    let n_4 = N / 4;
+    let mut witness_xor = Vec::new();
+
+    for i in n_4 .. R {
+        let zs = trace.k_sch[i][1..4].iter().flatten().copied();
+        let xs = trace.k_sch[i - n_4][1..4].iter().flatten().copied();
+        let ys = trace.k_sch[i][0..3].iter().flatten().copied();
+
+        let new_witness = xs.zip(ys).zip(zs).map(|((x, y), z)| (x, y, z));
+        witness_xor.extend(new_witness)
+    }
+
+    for i in n_4 .. R {
+        let zs = trace.k_sch[i][0].iter().copied();
+        let xs = trace.k_sch[i - n_4][0].iter().copied();
+        let ys = trace.k_sch_xor[i].iter().copied();
+        let new_witness = xs.zip(ys).zip(zs).map(|((x, y), z)| (x, y, z));
+        witness_xor.extend(new_witness)
+    }
+
+    witness_xor
+}
+
+// fn sbox_get_s_box_witness<const N: usize, const R: usize>(trace: &KeySchTrace<R>) -> Vec<(u8, u8)> {
+//     let n_4 = N / 4;
+//     let mut witness_s_box = Vec::new();
+
+//     for i in (n_4 .. R) {
+//         let xs = trace.k_sch[i-1][3];
+//         xs.rotate_left(1);
+
+//         let ys = trace.k_sch_s_box[i].iter().copied();
+//         let new_witness = xs.zip(ys);
+//         witness_s_box.extend(new_witness)
+//     }
+
+//     witness_s_box
+// }
 
 /// Compute needles and frequencies
 /// Return (needles, frequencies, frequencies_u8)

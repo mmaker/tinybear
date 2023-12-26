@@ -73,7 +73,7 @@ where
     (challenges, claim)
 }
 
-pub(crate) struct Claim<F: Field>(pub Vec<F>, pub Vec<F>);
+pub(crate) struct Claim<A: AdditiveGroup>(pub Vec<A>, pub Vec<A>);
 
 impl<F: Field> Claim<F> {
     pub fn new(v: &[F], w: &[F]) -> Self {
@@ -106,9 +106,11 @@ pub fn batch_sumcheck<G: CurveGroup, const N: usize>(
     let mut openings = Vec::new();
 
     while claims.iter().any(|claim| claim.len() > 2) {
-        let [mut a, mut b] = round_message(&claims[0].0, &claims[0].1);
+        let Claim(f, g) = &claims[0];
+        let [mut a, mut b] = round_message(f, g);
         for (claim, challenge) in claims[1..].iter_mut().zip(challenges.iter()) {
-            let [claim_a, claim_b] = round_message(&claim.0, &claim.1);
+            let Claim(f, g) = claim;
+            let [claim_a, claim_b] = round_message(f, g);
             a += claim_a * challenge;
             b += claim_b * challenge;
         }
