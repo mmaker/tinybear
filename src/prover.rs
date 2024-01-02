@@ -112,7 +112,12 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesCipherWitness<F
         }
         // last round
         {
-            let xs = self.trace.s_box.iter().skip(self.trace.s_box.len() - 16).copied();
+            let xs = self
+                .trace
+                .s_box
+                .iter()
+                .skip(self.trace.s_box.len() - 16)
+                .copied();
             let ys = self.trace._keys.last().into_iter().flatten().copied();
             let zs = self.trace.output.iter().copied();
             let new_witness = xs.zip(ys).zip(zs).map(|((x, y), z)| (x, y, z));
@@ -146,7 +151,10 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesCipherWitness<F
         self.message_opening + self.key_opening
     }
 
-    fn compute_needles_and_frequencies(&self, [r_xor, r2_xor, r_sbox, r_rj2]: [F; 4]) -> (Vec<F>, Vec<F>, Vec<u8>) {
+    fn compute_needles_and_frequencies(
+        &self,
+        [r_xor, r2_xor, r_sbox, r_rj2]: [F; 4],
+    ) -> (Vec<F>, Vec<F>, Vec<u8>) {
         // Generate the witness.
         // witness_s_box = [(a, sbox(a)), (b, sbox(b)), ...]
         let witness_s_box = self.get_s_box_witness();
@@ -190,8 +198,18 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesCipherWitness<F
 
     fn full_witness(&self) -> Vec<F> {
         let m = self.message.iter().flat_map(|x| [x & 0xf, x >> 4]);
-        let rk = self.round_keys.iter().flatten().flat_map(|x| [x & 0xf, x >> 4]);
-        self.witness_vec.iter().copied().chain(m).chain(rk).map(F::from).collect()
+        let rk = self
+            .round_keys
+            .iter()
+            .flatten()
+            .flat_map(|x| [x & 0xf, x >> 4]);
+        self.witness_vec
+            .iter()
+            .copied()
+            .chain(m)
+            .chain(rk)
+            .map(F::from)
+            .collect()
     }
 }
 
@@ -571,7 +589,6 @@ fn test_prove() {
     println!("lin size: {}", proof.lin_proof.compressed_size());
 }
 
-
 #[test]
 fn test_trace_to_needles_map() {
     use crate::linalg;
@@ -588,7 +605,6 @@ fn test_trace_to_needles_map() {
         0xE7u8, 0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69,
         0x0C,
     ];
-    let witness = aes::AesCipherTrace::new_aes128(message, key);
     // actual length needed is: ceil(log(OFFSETS.cipher_len * 2))
     let challenges = (0..11).map(|_| F::rand(rng)).collect::<Vec<_>>();
     let vector = linalg::tensor(&challenges);
@@ -598,10 +614,8 @@ fn test_trace_to_needles_map() {
     let r_sbox = F::rand(rng);
     let r_rj2 = F::rand(rng);
 
-
     let witness = AesCipherWitness::<F, 11, 4>::new(message, &key, F::zero(), F::zero());
-    let (needles, _, _) =
-        witness.compute_needles_and_frequencies([r_xor, r2_xor, r_sbox, r_rj2]);
+    let (needles, _, _) = witness.compute_needles_and_frequencies([r_xor, r2_xor, r_sbox, r_rj2]);
     let got = linalg::inner_product(&needles, &vector);
 
     let cipher_trace = crate::helper::vectorize_witness::<11>(&witness.trace);
@@ -618,8 +632,11 @@ fn test_trace_to_needles_map() {
         .map(F::from)
         .collect::<Vec<_>>();
 
-    let (needled_vector, constant_term) =
-        crate::helper::trace_to_needles_map::<F, 11>(&witness.trace.output, &vector, [r_sbox, r_rj2, r_xor, r2_xor]);
+    let (needled_vector, constant_term) = crate::helper::trace_to_needles_map::<F, 11>(
+        &witness.trace.output,
+        &vector,
+        [r_sbox, r_rj2, r_xor, r2_xor],
+    );
     let expected = linalg::inner_product(&needled_vector, &trace) + constant_term;
     assert_eq!(got, expected);
 }

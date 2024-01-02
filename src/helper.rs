@@ -254,4 +254,3 @@ pub(crate) fn trace_to_needles_map<F: Field, const R: usize>(
 
     (dst, constant_term)
 }
-

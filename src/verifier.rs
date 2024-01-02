@@ -12,54 +12,20 @@ use crate::prover::TinybearProof;
 
 type ProofResult = Result<(), ()>;
 
-pub fn aes128_verify<G>(
-    transcript: &mut IOPTranscript<G::ScalarField>,
-    ck: &CommitmentKey<G>,
-    message_commitment: &G,
-    round_keys_commitment: &G,
-    ctx: [u8; 16],
-    proof: &TinybearProof<G>,
-) -> ProofResult
-where
-    G: CurveGroup,
-{
-    aes_verify::<G, 11>(
-        transcript,
-        ck,
-        message_commitment,
-        round_keys_commitment,
-        ctx,
-        proof,
-    )
-}
+pub trait Instance<G: CurveGroup> {
+    fn full_witness_com(&self, w_com: &G) -> G;
 
-pub fn aes256_verify<G>(
-    transcript: &mut IOPTranscript<G::ScalarField>,
-    ck: &CommitmentKey<G>,
-    message_commitment: &G,
-    round_keys_commitment: &G,
-    ctx: [u8; 16],
-    proof: &TinybearProof<G>,
-) -> ProofResult
-where
-    G: CurveGroup,
-{
-    aes_verify::<G, 15>(
-        transcript,
-        ck,
-        message_commitment,
-        round_keys_commitment,
-        ctx,
-        proof,
-    )
+    fn trace_to_needles_map(
+        &self,
+        src: &[G::ScalarField],
+        r: [G::ScalarField; 4],
+    ) -> (Vec<G::ScalarField>, G::ScalarField);
 }
 
 pub fn aes_verify<G, const R: usize>(
     transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &CommitmentKey<G>,
-    message_commitment: &G,
-    round_keys_commitment: &G,
-    ctx: [u8; 16],
+    instance: &impl Instance<G>,
     proof: &TinybearProof<G>,
 ) -> ProofResult
 where
@@ -119,11 +85,8 @@ where
     // let twist_vec = powers(twist, helper::NEEDLES_LEN+1);
     let twist_vec = powers(ipa_twist, needles_len);
     let ipa_twist_cs_vec = linalg::hadamard(&ipa_cs_vec, &twist_vec);
-    let (s_vec, s_const) = helper::trace_to_needles_map::<G::ScalarField, R>(
-        &ctx,
-        &ipa_twist_cs_vec,
-        [c_sbox, c_rj2, c_xor, c_xor2],
-    );
+    let (s_vec, s_const) =
+        instance.trace_to_needles_map(&ipa_twist_cs_vec, [c_sbox, c_rj2, c_xor, c_xor2]);
 
     let ipa_cs_vec = linalg::tensor(&ipa_cs);
     let c_q = transcript.get_and_append_challenge(b"bc").unwrap();
@@ -142,7 +105,7 @@ where
     let lin_h_fold = linalg::inner_product(&lin_sumcheck_chals_vec, &h_vec);
     let lin_ipa_cs_c_q_fold = linalg::inner_product(&lin_sumcheck_chals_vec, &ipa_cs_c_q_vec);
     let lin_s_fold = linalg::inner_product(&lin_sumcheck_chals_vec, &s_vec);
-    let Z = proof.W + message_commitment + round_keys_commitment;
+    let Z = instance.full_witness_com(&proof.W);
     let lin_Z_fold = (reduced_claim
         - proof.lin_M_fold * lin_h_fold
         - proof.lin_Q_fold * lin_ipa_cs_c_q_fold * c_lin_batch)
@@ -251,4 +214,90 @@ fn test_aes256_proof_correctness() {
         &proof,
     );
     assert!(result.is_ok());
+}
+
+pub fn aes128_verify<G>(
+    transcript: &mut IOPTranscript<G::ScalarField>,
+    ck: &CommitmentKey<G>,
+    message_commitment: &G,
+    round_keys_commitment: &G,
+    ctx: [u8; 16],
+    proof: &TinybearProof<G>,
+) -> ProofResult
+where
+    G: CurveGroup,
+{
+    let instance =
+        AesCipherInstance::<G, 11, 4>::new(message_commitment, round_keys_commitment, ctx);
+    aes_verify::<G, 11>(transcript, ck, &instance, proof)
+}
+
+pub fn aes256_verify<G>(
+    transcript: &mut IOPTranscript<G::ScalarField>,
+    ck: &CommitmentKey<G>,
+    m_com: &G,
+    rk_com: &G,
+    ctx: [u8; 16],
+    proof: &TinybearProof<G>,
+) -> ProofResult
+where
+    G: CurveGroup,
+{
+    let instance = AesCipherInstance::<G, 15, 8>::new(m_com, rk_com, ctx);
+    aes_verify::<G, 15>(transcript, ck, &instance, proof)
+}
+
+
+pub struct AesCipherInstance<G: CurveGroup, const R: usize, const N: usize> {
+    pub message_com: G,
+    pub round_keys_com: G,
+    pub ctx: [u8; 16],
+}
+
+pub struct AeskeySchInstance<G: CurveGroup, const R: usize, const N: usize> {
+    pub round_keys_com: G,
+}
+
+impl<G: CurveGroup, const R: usize, const N: usize> AesCipherInstance<G, R, N> {
+    pub fn new(&message_com: &G, &round_keys_com: &G, ctx: [u8; 16]) -> Self {
+        Self {
+            message_com,
+            round_keys_com,
+            ctx,
+        }
+    }
+}
+
+impl<G: CurveGroup, const R: usize, const N: usize> AeskeySchInstance<G, R, N> {
+    pub fn new(&round_keys_com: &G) -> Self {
+        Self { round_keys_com }
+    }
+}
+
+impl<G: CurveGroup, const R: usize, const N: usize> Instance<G> for AeskeySchInstance<G, R, N> {
+    fn trace_to_needles_map(
+        &self,
+        src: &[<G>::ScalarField],
+        r: [<G>::ScalarField; 4],
+    ) -> (Vec<<G>::ScalarField>, <G>::ScalarField) {
+        todo!()
+    }
+
+    fn full_witness_com(&self, w_com: &G) -> G {
+        self.round_keys_com + w_com
+    }
+}
+
+impl<G: CurveGroup, const R: usize, const N: usize> Instance<G> for AesCipherInstance<G, R, N> {
+    fn trace_to_needles_map(
+        &self,
+        src: &[<G>::ScalarField],
+        r: [<G>::ScalarField; 4],
+    ) -> (Vec<<G>::ScalarField>, <G>::ScalarField) {
+        crate::helper::trace_to_needles_map::<_, R>(&self.ctx, src, r)
+    }
+
+    fn full_witness_com(&self, w_com: &G) -> G {
+        self.message_com + self.round_keys_com + w_com
+    }
 }
