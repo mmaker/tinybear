@@ -60,9 +60,7 @@ pub fn shiftrows<T>(mut state: [T; 16]) -> [T; 16] {
 }
 
 pub fn xor<const N: usize>(mut state: [u8; N], key: [u8; N]) -> [u8; N] {
-    for i in 0..N {
-        state[i] ^= key[i];
-    }
+    (0..N).for_each(|i| state[i] ^= key[i]);
     state
 }
 
@@ -85,19 +83,18 @@ pub fn mixcolumns(mut state: [u8; 16]) -> [u8; 16] {
     state
 }
 
-
 #[inline]
 pub fn aes128_keyschedule(key: &[u8; 16]) -> [[u8; 16]; 11] {
-    keyschedule::<4, 11>(key)
+    keyschedule::<11, 4>(key)
 }
 
 #[inline]
 pub fn aes256_keyschedule(key: &[u8; 32]) -> [[u8; 16]; 15] {
-    keyschedule::<8, 15>(key)
+    keyschedule::<15, 8>(key)
 }
 
 /// Naive implementation of AES's keyschedule.
-fn keyschedule<const N: usize, const R: usize>(key: &[u8]) -> [[u8; 16]; R] {
+pub(crate) fn keyschedule<const R: usize, const N: usize>(key: &[u8]) -> [[u8; 16]; R] {
     let trace = AesKeySchTrace::<R, N>::new(key);
 
     let mut round_keys = [[0u8; 16]; R];
@@ -119,11 +116,11 @@ fn aes_round(mut state: [u8; 16], round_key: [u8; 16]) -> [u8; 16] {
 }
 
 /// Naive implementation of AES-128
-fn aes<const L: usize, const N: usize, const R: usize>(
+fn aes<const R: usize, const N: usize, const L: usize>(
     message: [u8; 16],
     key: [u8; L],
 ) -> [u8; 16] {
-    let keys = keyschedule::<N, R>(&key);
+    let keys = keyschedule::<R, N>(&key);
 
     let mut state = xor(message, keys[0]);
     for i in 1..R - 1 {
@@ -136,13 +133,13 @@ fn aes<const L: usize, const N: usize, const R: usize>(
 /// Naive implementation of AES-128
 #[inline]
 pub fn aes128(message: [u8; 16], key: [u8; 16]) -> [u8; 16] {
-    aes::<16, 4, 11>(message, key)
+    aes::<11, 4, 16>(message, key)
 }
 
 /// Naive implementation of AES-256
 #[inline]
 pub fn aes256(message: [u8; 16], key: [u8; 32]) -> [u8; 16] {
-    aes::<32, 8, 15>(message, key)
+    aes::<15, 8, 32>(message, key)
 }
 
 /// Rotate a vector of states to the right `times` times.
@@ -283,8 +280,6 @@ impl AesCipherTrace {
         aes_trace(message, &round_keys)
     }
 }
-
-
 
 pub(crate) fn aes_trace<const R: usize>(
     message: [u8; 16],
