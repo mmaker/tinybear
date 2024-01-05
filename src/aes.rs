@@ -99,10 +99,10 @@ pub(crate) fn keyschedule<const R: usize, const N: usize>(key: &[u8]) -> [[u8; 1
 
     let mut round_keys = [[0u8; 16]; R];
     for i in 0..R {
-        round_keys[i][..4].copy_from_slice(&trace.k_sch[i][0]);
-        round_keys[i][4..8].copy_from_slice(&trace.k_sch[i][1]);
-        round_keys[i][8..12].copy_from_slice(&trace.k_sch[i][2]);
-        round_keys[i][12..16].copy_from_slice(&trace.k_sch[i][3]);
+        round_keys[i][..4].copy_from_slice(&trace.round_keys[i][0]);
+        round_keys[i][4..8].copy_from_slice(&trace.round_keys[i][1]);
+        round_keys[i][8..12].copy_from_slice(&trace.round_keys[i][2]);
+        round_keys[i][12..16].copy_from_slice(&trace.round_keys[i][3]);
     }
     round_keys
 }
@@ -120,6 +120,7 @@ fn aes<const R: usize, const N: usize, const L: usize>(
     message: [u8; 16],
     key: [u8; L],
 ) -> [u8; 16] {
+    debug_assert!((R == 11 && N == 4 && L == 16) || (R == 15 && N == 8 && L == 32));
     let keys = keyschedule::<R, N>(&key);
 
     let mut state = xor(message, keys[0]);
@@ -161,17 +162,19 @@ pub fn transpose_inplace<T>(list: &mut [T]) {
 }
 
 pub struct AesKeySchTrace<const R: usize, const N: usize> {
-    pub k_sch_xor: [[u8; 4]; R],
-    pub k_sch_s_box: [[u8; 4]; R],
-    pub k_sch: [[[u8; 4]; 4]; R],
+    pub xor: [[u8; 4]; R],
+    pub s_box: [[u8; 4]; R],
+    pub round_keys: [[[u8; 4]; 4]; R],
+    pub _pre_xor: [[u8; 4]; R],
 }
 
 impl<const R: usize, const N: usize> Default for AesKeySchTrace<R, N> {
     fn default() -> Self {
         Self {
-            k_sch_s_box: [[0u8; 4]; R],
-            k_sch: [[[0u8; 4]; 4]; R],
-            k_sch_xor: [[0u8; 4]; R],
+            s_box: [[0u8; 4]; R],
+            round_keys: [[[0u8; 4]; 4]; R],
+            xor: [[0u8; 4]; R],
+            _pre_xor: [[0u8; 4]; R],
         }
     }
 }
@@ -187,30 +190,30 @@ impl<const R: usize, const N: usize> AesKeySchTrace<R, N> {
 
     pub fn new(key: &[u8]) -> Self {
         let mut trace = AesKeySchTrace::default();
-        let n_4: usize = N / 4;
+        let n_4 = N / 4;
 
         for i in 0..N {
             let k = i / 4;
             let j = i % 4;
-            trace.k_sch[k][j].copy_from_slice(&key[i * 4..(i + 1) * 4]);
+            trace.round_keys[k][j].copy_from_slice(&key[i * 4..(i + 1) * 4]);
         }
 
         for i in n_4..R {
-            let mut a = trace.k_sch[i - 1][3];
             if N > 6 && (i * 4) % N == 4 {
-                trace.k_sch_s_box[i] = sbox(a);
-                a = trace.k_sch_s_box[i];
+                trace.s_box[i] = sbox(trace.round_keys[i - 1][3]);
+                trace._pre_xor[i] = trace.s_box[i];
             } else {
+                let mut a = trace.round_keys[i - 1][3];
                 a.rotate_left(1);
-                trace.k_sch_s_box[i] = sbox(a);
-                trace.k_sch_xor[i] = xor(trace.k_sch_s_box[i], [RC[i * 4 / N], 0, 0, 0]);
-                a = trace.k_sch_xor[i];
+                trace.s_box[i] = sbox(a);
+                trace.xor[i] = xor(trace.s_box[i], [RC[i * 4 / N], 0, 0, 0]);
+                trace._pre_xor[i] = trace.xor[i];
             }
 
-            trace.k_sch[i][0] = xor(trace.k_sch[i - n_4][0], a);
-            trace.k_sch[i][1] = xor(trace.k_sch[i - n_4][1], trace.k_sch[i][0]);
-            trace.k_sch[i][2] = xor(trace.k_sch[i - n_4][2], trace.k_sch[i][1]);
-            trace.k_sch[i][3] = xor(trace.k_sch[i - n_4][3], trace.k_sch[i][2]);
+            trace.round_keys[i][0] = xor(trace.round_keys[i - n_4][0], trace._pre_xor[i]);
+            trace.round_keys[i][1] = xor(trace.round_keys[i - n_4][1], trace.round_keys[i][0]);
+            trace.round_keys[i][2] = xor(trace.round_keys[i - n_4][2], trace.round_keys[i][1]);
+            trace.round_keys[i][3] = xor(trace.round_keys[i - n_4][3], trace.round_keys[i][2]);
         }
 
         trace

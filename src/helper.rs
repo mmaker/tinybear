@@ -12,6 +12,24 @@ pub(super) struct AesWitnessRegions {
     pub needles_len: usize,
 }
 
+pub(super) struct AesKeySchWitnessRegions {
+    pub s_box: usize,
+    pub xor: usize,
+    pub round_keys: usize,
+    pub len: usize,
+    // pub needles_len: usize,
+}
+
+pub(super) const fn aes_keysch_offsets<const R: usize, const N: usize>() -> AesKeySchWitnessRegions
+{
+    AesKeySchWitnessRegions {
+        s_box: 0,
+        xor: 4 * R,
+        round_keys: 4 * R + 4 * R,
+        len: 16 * R + 4 * R + 4 * R,
+    }
+}
+
 /// The witness is structured as follows:
 ///
 /// ```text
@@ -102,6 +120,22 @@ pub(crate) fn vectorize_witness<const R: usize>(witness: &aes::AesCipherTrace) -
         assert_eq!(registry.m_col[i], w.len());
         w.extend(&witness.m_col[i]);
     }
+    // split the witness and low and high 4-bits.
+    w.iter().flat_map(|x| [x & 0xf, x >> 4]).collect()
+}
+
+pub(crate) fn vectorize_keysch<const R: usize, const N: usize>(
+    witness: &aes::AesKeySchTrace<R, N>,
+) -> Vec<u8> {
+    let mut w = Vec::<u8>::new();
+    let registry = aes_keysch_offsets::<R, N>();
+
+    assert_eq!(registry.s_box, w.len());
+    w.extend(witness.s_box.iter().flatten());
+    assert_eq!(registry.xor, w.len());
+    w.extend(witness.xor.iter().flatten());
+    assert_eq!(registry.round_keys, w.len());
+    w.extend(witness.round_keys.iter().flatten().flatten());
     // split the witness and low and high 4-bits.
     w.iter().flat_map(|x| [x & 0xf, x >> 4]).collect()
 }

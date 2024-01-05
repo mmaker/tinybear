@@ -43,12 +43,6 @@ pub struct TinybearProof<G: CurveGroup> {
 
 pub trait Witness<F: Field> {
     fn witness_vec(&self) -> &[u8];
-    /// xor needles to lookup in table (x, y, z = x ^ y)
-    fn get_xor_witness(&self) -> Vec<(u8, u8, u8)>;
-    /// sbox needles to lookup in table x -> SBOX[x]
-    fn get_s_box_witness(&self) -> Vec<(u8, u8)>;
-    /// Rijndael(2) needles to lookup in table x -> Rj(2)*x
-    fn get_r2j_witness(&self) -> Vec<(u8, u8)>;
     /// Compute needles and frequencies
     /// Return (needles, frequencies, frequencies_u8)
     fn compute_needles_and_frequencies(&self, r: [F; 4]) -> (Vec<F>, Vec<F>, Vec<u8>);
@@ -69,6 +63,110 @@ pub struct AesCipherWitness<F: Field, const R: usize, const N: usize> {
     key_opening: F,
 }
 
+pub struct AesKeySchWitness<F: Field, const R: usize, const N: usize> {
+    trace: AesKeySchTrace<R, N>,
+    witness_vec: Vec<u8>,
+    round_keys_opening: F,
+}
+
+impl<F: Field, const R: usize, const N: usize> AesKeySchWitness<F, R, N> {
+    fn new(key: &[u8], &round_keys_opening: &F) -> Self {
+        let trace = AesKeySchTrace::<R, N>::new(key);
+        let witness_vec = helper::vectorize_keysch(&trace);
+        Self {
+            trace,
+            witness_vec,
+            round_keys_opening,
+        }
+    }
+
+    fn get_s_box_witness(&self) -> Vec<(u8, u8)> {
+        let mut witness_s_box = Vec::new();
+        let n_4 = N / 4;
+
+        for i in n_4..R {
+            let a = if N > 6 && (i * 4) % N == 4 {
+                self.trace.round_keys[i - 1][3]
+            } else {
+                let mut a = self.trace.round_keys[i - 1][3];
+                a.rotate_left(1);
+                a
+            };
+            for (x, y) in a.into_iter().zip(self.trace.s_box[i]) {
+                witness_s_box.push((x, y))
+            }
+        }
+        witness_s_box
+    }
+
+    fn get_xor_witness(&self) -> Vec<(u8, u8, u8)> {
+        let n_4 = N / 4;
+        let mut witness_xor = Vec::new();
+
+        for i in n_4..R {
+            let zs = self.trace.round_keys[i][1..4].iter().flatten().copied();
+            let xs = self.trace.round_keys[i - n_4][1..4]
+                .iter()
+                .flatten()
+                .copied();
+            let ys = self.trace.round_keys[i][0..3].iter().flatten().copied();
+
+            let new_witness = xs.zip(ys).zip(zs).map(|((x, y), z)| (x, y, z));
+            witness_xor.extend(new_witness)
+        }
+
+        for i in n_4..R {
+            let zs = self.trace.round_keys[i][0].iter().copied();
+            let xs = self.trace.round_keys[i - n_4][0].iter().copied();
+            let ys = self.trace.xor[i].iter().copied();
+            let new_witness = xs.zip(ys).zip(zs).map(|((x, y), z)| (x, y, z));
+            witness_xor.extend(new_witness)
+        }
+
+        witness_xor
+    }
+}
+
+impl<F: Field, const R: usize, const N: usize> Witness<F> for AesKeySchWitness<F, R, N> {
+    fn witness_vec(&self) -> &[u8] {
+        self.witness_vec.as_slice()
+    }
+
+    fn compute_needles_and_frequencies(
+        &self,
+        [r_xor, r2_xor, r_sbox, _r_rj2]: [F; 4],
+    ) -> (Vec<F>, Vec<F>, Vec<u8>) {
+        let witness_s_box = self.get_s_box_witness();
+        let witness_xor = self.get_xor_witness();
+        let s_box_needles = lookup::compute_u8_needles(&witness_s_box, r_sbox);
+        let xor_needles = lookup::compute_u16_needles(&witness_xor, [r_xor, r2_xor]);
+        let needles = [s_box_needles, xor_needles].concat();
+
+        let mut freq_u8 = vec![0u8; 256 * 3];
+        lookup::count_u16_frequencies(&mut freq_u8[0..256], &witness_xor);
+        lookup::count_u8_frequencies(&mut freq_u8[256..512], &witness_s_box);
+
+        let freq = freq_u8.iter().map(|x| F::from(*x)).collect::<Vec<_>>();
+        (needles, freq, freq_u8)
+    }
+
+    fn trace_to_needles_map(&self, _src: &[F], _r: [F; 4]) -> (Vec<F>, F) {
+        todo!()
+    }
+
+    fn full_witness(&self) -> Vec<F> {
+        self.witness_vec
+            .iter()
+            .chain(self.trace.round_keys.iter().flatten().flatten())
+            .map(|&x| F::from(x))
+            .collect()
+    }
+
+    fn full_witness_opening(&self) -> F {
+        self.round_keys_opening
+    }
+}
+
 impl<F: Field, const R: usize, const N: usize> AesCipherWitness<F, R, N> {
     fn new(message: [u8; 16], key: &[u8], message_opening: F, key_opening: F) -> Self {
         assert_eq!(key.len(), N * 4);
@@ -83,12 +181,6 @@ impl<F: Field, const R: usize, const N: usize> AesCipherWitness<F, R, N> {
             message_opening,
             key_opening,
         }
-    }
-}
-
-impl<F: Field, const R: usize, const N: usize> Witness<F> for AesCipherWitness<F, R, N> {
-    fn witness_vec(&self) -> &[u8] {
-        self.witness_vec.as_slice()
     }
 
     fn get_xor_witness(&self) -> Vec<(u8, u8, u8)> {
@@ -146,6 +238,12 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesCipherWitness<F
         let ys = self.trace.m_col[0].iter().copied();
         xs.zip(ys).collect()
     }
+}
+
+impl<F: Field, const R: usize, const N: usize> Witness<F> for AesCipherWitness<F, R, N> {
+    fn witness_vec(&self) -> &[u8] {
+        self.witness_vec.as_slice()
+    }
 
     fn full_witness_opening(&self) -> F {
         self.message_opening + self.key_opening
@@ -179,16 +277,13 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesCipherWitness<F
         // | 4-bit xor | sbox | r2j |
         // |  256      | 256  | 256 |
         // First, group witness by lookup table.
-        let mut frequencies_u8 = vec![0u8; 256 * 3];
-        lookup::count_u16_frequencies(&mut frequencies_u8[0..256], &witness_xor);
-        lookup::count_u8_frequencies(&mut frequencies_u8[256..512], &witness_s_box);
-        lookup::count_u8_frequencies(&mut frequencies_u8[512..768], &witness_r2j);
+        let mut freq_u8 = vec![0u8; 256 * 3];
+        lookup::count_u16_frequencies(&mut freq_u8[0..256], &witness_xor);
+        lookup::count_u8_frequencies(&mut freq_u8[256..512], &witness_s_box);
+        lookup::count_u8_frequencies(&mut freq_u8[512..768], &witness_r2j);
 
-        let frequencies = frequencies_u8
-            .iter()
-            .map(|x| F::from(*x))
-            .collect::<Vec<_>>();
-        (needles, frequencies, frequencies_u8)
+        let freq = freq_u8.iter().map(|x| F::from(*x)).collect::<Vec<_>>();
+        (needles, freq, freq_u8)
     }
 
     fn trace_to_needles_map(&self, src: &[F], r: [F; 4]) -> (Vec<F>, F) {
@@ -278,48 +373,6 @@ fn commit_round_keys<G: CurveGroup, const R: usize>(
     (round_keys_commitment, key_blinder)
 }
 
-fn ks_get_xor_witness<const N: usize, const R: usize>(
-    trace: &AesKeySchTrace<R, N>,
-) -> Vec<(u8, u8, u8)> {
-    let n_4 = N / 4;
-    let mut witness_xor = Vec::new();
-
-    for i in n_4..R {
-        let zs = trace.k_sch[i][1..4].iter().flatten().copied();
-        let xs = trace.k_sch[i - n_4][1..4].iter().flatten().copied();
-        let ys = trace.k_sch[i][0..3].iter().flatten().copied();
-
-        let new_witness = xs.zip(ys).zip(zs).map(|((x, y), z)| (x, y, z));
-        witness_xor.extend(new_witness)
-    }
-
-    for i in n_4..R {
-        let zs = trace.k_sch[i][0].iter().copied();
-        let xs = trace.k_sch[i - n_4][0].iter().copied();
-        let ys = trace.k_sch_xor[i].iter().copied();
-        let new_witness = xs.zip(ys).zip(zs).map(|((x, y), z)| (x, y, z));
-        witness_xor.extend(new_witness)
-    }
-
-    witness_xor
-}
-
-// fn sbox_get_s_box_witness<const N: usize, const R: usize>(trace: &KeySchTrace<R>) -> Vec<(u8, u8)> {
-//     let n_4 = N / 4;
-//     let mut witness_s_box = Vec::new();
-
-//     for i in (n_4 .. R) {
-//         let xs = trace.k_sch[i-1][3];
-//         xs.rotate_left(1);
-
-//         let ys = trace.k_sch_s_box[i].iter().copied();
-//         let new_witness = xs.zip(ys);
-//         witness_s_box.extend(new_witness)
-//     }
-
-//     witness_s_box
-// }
-
 #[inline]
 pub fn aes128_prove<G: CurveGroup>(
     transcript: &mut IOPTranscript<G::ScalarField>,
@@ -348,6 +401,28 @@ pub fn aes256_prove<G: CurveGroup>(
     aes_prove::<G, 15>(transcript, ck, &witness)
 }
 
+#[inline]
+pub fn aes128ks_prove<G: CurveGroup>(
+    transcript: &mut IOPTranscript<G::ScalarField>,
+    ck: &CommitmentKey<G>,
+    key: [u8; 16],
+    key_blinder: G::ScalarField,
+) -> TinybearProof<G> {
+    let witness = AesKeySchWitness::<G::ScalarField, 11, 4>::new(&key, &key_blinder);
+    aes_prove::<G, 11>(transcript, ck, &witness)
+}
+
+#[inline]
+pub fn aes256ks_prove<G: CurveGroup>(
+    transcript: &mut IOPTranscript<G::ScalarField>,
+    ck: &CommitmentKey<G>,
+    key: [u8; 32],
+    key_blinder: G::ScalarField,
+) -> TinybearProof<G> {
+    let witness = AesKeySchWitness::<G::ScalarField, 15, 8>::new(&key, &key_blinder);
+    aes_prove::<G, 15>(transcript, ck, &witness)
+}
+
 fn aes_prove<G: CurveGroup, const R: usize>(
     transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &CommitmentKey<G>,
@@ -359,7 +434,7 @@ fn aes_prove<G: CurveGroup, const R: usize>(
     // Commit to the AES trace.
     // TIME: ~3-4ms [outdated]
     let w_vec = witness.witness_vec();
-    let (W, W_opening) = pedersen::commit_hiding_u8(rng, ck, &w_vec);
+    let (W, W_opening) = pedersen::commit_hiding_u8(rng, ck, w_vec);
     // Send W
     proof.W = W;
     transcript
@@ -374,7 +449,8 @@ fn aes_prove<G: CurveGroup, const R: usize>(
     // Compute needles and frequencies
     let (f_vec, m_vec, m_u8) =
         witness.compute_needles_and_frequencies([c_xor, c_xor2, c_sbox, c_rj2]);
-    debug_assert_eq!(f_vec.len(), helper::aes_offsets::<R>().needles_len);
+    // commented out as relevant only for aes and not keyschedule.
+    // debug_assert_eq!(f_vec.len(), helper::aes_offsets::<R>().needles_len);
     // Commit to m (using mu as the blinder) and send it over
     let (M, M_opening) = pedersen::commit_hiding_u8(rng, ck, &m_u8);
     // Send M
@@ -396,7 +472,7 @@ fn aes_prove<G: CurveGroup, const R: usize>(
     // Finally compute h and t
     let (t_vec, h_vec) = lookup::compute_haystack([c_xor, c_xor2, c_sbox, c_rj2], c_lup);
     // there are as many frequencies as elements in the haystack
-    debug_assert_eq!(h_vec.len(), m_u8.len());
+        debug_assert_eq!(h_vec.len(), m_u8.len());
     // all needles are in the haystack
     assert!(f_vec.iter().all(|x| t_vec.contains(x)));
     // Send (Q,Y)
@@ -639,4 +715,8 @@ fn test_trace_to_needles_map() {
     );
     let expected = linalg::inner_product(&needled_vector, &trace) + constant_term;
     assert_eq!(got, expected);
+}
+
+fn test_aesks128() {
+
 }

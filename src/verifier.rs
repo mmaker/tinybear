@@ -8,7 +8,7 @@ use crate::linalg::powers;
 use crate::{helper, linalg, lookup, sigma, sumcheck};
 
 use crate::pedersen::CommitmentKey;
-use crate::prover::TinybearProof;
+use crate::prover::{TinybearProof, commit_aes128_keys};
 
 type ProofResult = Result<(), ()>;
 
@@ -135,7 +135,7 @@ where
 }
 
 #[test]
-fn test_aes128_proof_correctness() {
+fn test_aes128() {
     use crate::{aes, pedersen, prover};
 
     type G = ark_curve25519::EdwardsProjective;
@@ -175,8 +175,32 @@ fn test_aes128_proof_correctness() {
     assert!(result.is_ok());
 }
 
+
 #[test]
-fn test_aes256_proof_correctness() {
+fn test_aes128ks() {
+    use crate::{pedersen, prover};
+
+    type G = ark_curve25519::EdwardsProjective;
+    type F = ark_curve25519::Fr;
+
+    let mut transcript_p = IOPTranscript::<F>::new(b"aes");
+    transcript_p.append_message(b"init", b"init").unwrap();
+    let rng = &mut rand::rngs::OsRng;
+
+    let mut transcript_v = IOPTranscript::<F>::new(b"aes");
+    transcript_v.append_message(b"init", b"init").unwrap();
+
+    let ck = pedersen::setup::<G>(rng, helper::AES128REG.len * 2);
+
+    let key = *b"\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C";
+
+    let (key_com, key_opening) = commit_aes128_keys(rng, &ck, &key);
+    let proof = prover::aes128ks_prove(&mut transcript_p, &ck, key, key_opening);
+}
+
+
+#[test]
+fn test_aes256() {
     use crate::{aes, pedersen, prover};
 
     type G = ark_curve25519::EdwardsProjective;
@@ -189,7 +213,7 @@ fn test_aes256_proof_correctness() {
     let mut transcript_v = IOPTranscript::<F>::new(b"aes");
     transcript_v.append_message(b"init", b"init").unwrap();
 
-    let ck = pedersen::setup::<G>(&mut rand::thread_rng(), helper::AES256REG.len * 2);
+    let ck = pedersen::setup::<G>(rng, helper::AES256REG.len * 2);
 
     let message = *b"\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C\xE7";
     let key = *b"\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C";
@@ -247,7 +271,6 @@ where
     aes_verify::<G, 15>(transcript, ck, &instance, proof)
 }
 
-
 pub struct AesCipherInstance<G: CurveGroup, const R: usize, const N: usize> {
     pub message_com: G,
     pub round_keys_com: G,
@@ -277,8 +300,8 @@ impl<G: CurveGroup, const R: usize, const N: usize> AeskeySchInstance<G, R, N> {
 impl<G: CurveGroup, const R: usize, const N: usize> Instance<G> for AeskeySchInstance<G, R, N> {
     fn trace_to_needles_map(
         &self,
-        src: &[<G>::ScalarField],
-        r: [<G>::ScalarField; 4],
+        _src: &[<G>::ScalarField],
+        _r: [<G>::ScalarField; 4],
     ) -> (Vec<<G>::ScalarField>, <G>::ScalarField) {
         todo!()
     }
