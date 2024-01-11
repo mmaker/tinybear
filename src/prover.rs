@@ -13,6 +13,7 @@ use transcript::IOPTranscript;
 use super::{aes, helper, linalg, lookup, pedersen, sigma, sumcheck, u8msm};
 use crate::aes::AesCipherTrace;
 use crate::aes::AesKeySchTrace;
+use crate::helper::aes_keysch_offsets;
 use crate::helper::trace_to_needles_map;
 use crate::pedersen::CommitmentKey;
 use crate::sigma::SigmaProof;
@@ -104,27 +105,118 @@ impl<F: Field, const R: usize, const N: usize> AesKeySchWitness<F, R, N> {
         let mut witness_xor = Vec::new();
 
         for i in n_4..R {
-            let zs = self.trace.round_keys[i][1..4].iter().flatten().copied();
             let xs = self.trace.round_keys[i - n_4][1..4]
                 .iter()
                 .flatten()
                 .copied();
             let ys = self.trace.round_keys[i][0..3].iter().flatten().copied();
+            let zs = self.trace.round_keys[i][1..4].iter().flatten().copied();
 
             let new_witness = xs.zip(ys).zip(zs).map(|((x, y), z)| (x, y, z));
             witness_xor.extend(new_witness)
         }
 
         for i in n_4..R {
-            let zs = self.trace.round_keys[i][0].iter().copied();
             let xs = self.trace.round_keys[i - n_4][0].iter().copied();
             let ys = self.trace.xor[i].iter().copied();
+            let zs = self.trace.round_keys[i][0].iter().copied();
             let new_witness = xs.zip(ys).zip(zs).map(|((x, y), z)| (x, y, z));
             witness_xor.extend(new_witness)
         }
 
         witness_xor
     }
+}
+
+fn ks_lin_sbox_map<F: Field, const R: usize, const N: usize>(dst: &mut [F], v: &[F], r: F) {
+    let registry = aes_keysch_offsets::<R, N>();
+    let n_4 = N / 4;
+    let identity = [0, 1, 2, 3];
+    let mut rotated_left = identity.clone();
+    rotated_left.rotate_left(1);
+
+    for round in n_4..R {
+        let idx = if N > 6 && (round * 4) % N == 4 {
+            identity
+        } else {
+            rotated_left
+        };
+        for (y_j, x_j) in idx.into_iter().enumerate() {
+            let x_pos = 16 * (round - n_4) + 3 * 4 + x_j;
+            let y_pos = 4 * round + y_j;
+
+            let c_lo = v[(round - n_4) * 4 + y_j];
+            let c_hi = c_lo.double().double().double().double();
+            dst[(registry.round_keys + x_pos) * 2] += c_lo;
+            dst[(registry.round_keys + x_pos) * 2 + 1] += c_hi;
+            dst[(registry.s_box + y_pos) * 2] += r * c_lo;
+            dst[(registry.s_box + y_pos) * 2 + 1] += r * c_hi;
+        }
+    }
+}
+
+fn ks_lin_xor_map<F: Field, const R: usize, const N: usize>(
+    dst: &mut [F],
+    v: &[F],
+    [r, r2]: [F; 2],
+) -> F {
+    let registry = aes_keysch_offsets::<R, N>();
+    // the running index over the source vector
+    let mut v_pos = 0;
+    let mut constant_term = F::from(0);
+
+    // round_keys[i - n_4][1..4] XOR round_keys[i][0..3] = round_keys[i][1..4]
+    let n_4 = N / 4;
+    for round in n_4..R {
+        for i in 1..4 {
+            for j in 0..4 {
+                let x_pos = 16 * (round - n_4) + i * 4 + j;
+                let y_pos = 16 * round + (i - 1) * 4 + j;
+                let z_pos = 16 * round + i * 4 + j;
+
+                let v_even = v[v_pos * 2];
+                let v_odd = v[v_pos * 2 + 1];
+
+                dst[(registry.round_keys + x_pos) * 2] += v_even;
+                dst[(registry.round_keys + y_pos) * 2] += r * v_even;
+                dst[(registry.round_keys + z_pos) * 2] += r2 * v_even;
+
+                dst[(registry.round_keys + x_pos) * 2 + 1] += v_odd;
+                dst[(registry.round_keys + y_pos) * 2 + 1] += r * v_odd;
+                dst[(registry.round_keys + z_pos) * 2 + 1] += r2 * v_odd;
+
+                v_pos += 1;
+            }
+        }
+    }
+
+    // at this point,
+    // v_pos = 3 * (R-1) * 4
+
+    for round in n_4..R {
+        for j in 0..4 {
+            let x_pos = 16 * (round - n_4) + j;
+            let y_pos = 4 * round + j;
+            let z_pos = 16 * round + j;
+
+            let v_even = v[v_pos * 2];
+            let v_odd = v[v_pos * 2+1];
+
+            dst[(registry.round_keys + x_pos) * 2] += v_even;
+            dst[(registry.xor + y_pos) * 2] += r * v_even;
+            dst[(registry.round_keys + z_pos) * 2] += r2 * v_even;
+
+            dst[(registry.round_keys + x_pos) * 2 + 1] += v_odd;
+            dst[(registry.xor + y_pos) * 2 + 1] += r * v_odd;
+            dst[(registry.round_keys + z_pos) * 2 + 1] += r2 * v_odd;
+
+            v_pos +=1;
+        }
+    }
+
+    // at this point,
+    // count = 3 * (R-1) * 4 + (R-1) * 4
+    constant_term
 }
 
 impl<F: Field, const R: usize, const N: usize> Witness<F> for AesKeySchWitness<F, R, N> {
@@ -150,8 +242,18 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesKeySchWitness<F
         (needles, freq, freq_u8)
     }
 
-    fn trace_to_needles_map(&self, _src: &[F], _r: [F; 4]) -> (Vec<F>, F) {
-        todo!()
+    fn trace_to_needles_map(
+        &self,
+        src: &[F],
+        [r_xor, r2_xor, r_sbox, _r_rj2]: [F; 4],
+    ) -> (Vec<F>, F) {
+        let registry = aes_keysch_offsets::<R, N>();
+        let mut dst = vec![F::zero(); registry.len * 2];
+        let mut offset: usize = 0;
+        ks_lin_sbox_map::<F, R, N>(&mut dst, src, r_sbox);
+        offset += 4 * (R - N/4);
+        let constant_term = ks_lin_xor_map::<F, R, N>(&mut dst, &src[offset..], [r_xor, r2_xor]);
+        (dst, constant_term)
     }
 
     fn full_witness(&self) -> Vec<F> {
@@ -165,6 +267,35 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesKeySchWitness<F
     fn full_witness_opening(&self) -> F {
         self.round_keys_opening
     }
+}
+
+#[test]
+fn test_linear_ks() {
+    use crate::linalg::inner_product;
+    use ark_std::UniformRand;
+    use ark_curve25519::Fr as F;
+
+    let rng = &mut ark_std::test_rng();
+    let registry = aes_keysch_offsets::<11, 4>();
+    let key = [1u8; 16];
+    let opening = F::from(1u8);
+    let r = [F::from(1), F::from(1), F::rand(rng), F::from(0)];
+    let ks = AesKeySchWitness::<F, 11, 4>::new(&key, &opening);
+    let z = ks.full_witness();
+    let mut v = vec![F::from(0); registry.needles_len];
+
+    let constraints = (10) * 4  + // s_box constraints
+    3 * 10 * 4 * 2 + 2 ;
+    println!("{} {}", v.len(), constraints);
+
+    (0..registry.needles_len).for_each(|x| v[x] = F::from(1));
+
+    let (Az, _f, _f8) = ks.compute_needles_and_frequencies(r);
+    assert_eq!(Az.len(), registry.needles_len);
+    // 180 constraints
+
+    let (Av, _constant_term) = ks.trace_to_needles_map(&v, r);
+    assert_eq!(inner_product(&Az, &v), inner_product(&Av, &z));
 }
 
 impl<F: Field, const R: usize, const N: usize> AesCipherWitness<F, R, N> {
@@ -287,8 +418,7 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesCipherWitness<F
     }
 
     fn trace_to_needles_map(&self, src: &[F], r: [F; 4]) -> (Vec<F>, F) {
-        let output = &self.trace.output;
-        trace_to_needles_map::<_, R>(output, src, r)
+        trace_to_needles_map::<_, R>(&self.trace.output, src, r)
     }
 
     fn full_witness(&self) -> Vec<F> {
@@ -472,7 +602,7 @@ fn aes_prove<G: CurveGroup, const R: usize>(
     // Finally compute h and t
     let (t_vec, h_vec) = lookup::compute_haystack([c_xor, c_xor2, c_sbox, c_rj2], c_lup);
     // there are as many frequencies as elements in the haystack
-        debug_assert_eq!(h_vec.len(), m_u8.len());
+    debug_assert_eq!(h_vec.len(), m_u8.len());
     // all needles are in the haystack
     assert!(f_vec.iter().all(|x| t_vec.contains(x)));
     // Send (Q,Y)
@@ -715,8 +845,4 @@ fn test_trace_to_needles_map() {
     );
     let expected = linalg::inner_product(&needled_vector, &trace) + constant_term;
     assert_eq!(got, expected);
-}
-
-fn test_aesks128() {
-
 }

@@ -8,7 +8,7 @@ use crate::linalg::powers;
 use crate::{helper, linalg, lookup, sigma, sumcheck};
 
 use crate::pedersen::CommitmentKey;
-use crate::prover::{TinybearProof, commit_aes128_keys};
+use crate::prover::{commit_aes128_keys, TinybearProof};
 
 type ProofResult = Result<(), ()>;
 
@@ -175,7 +175,6 @@ fn test_aes128() {
     assert!(result.is_ok());
 }
 
-
 #[test]
 fn test_aes128ks() {
     use crate::{pedersen, prover};
@@ -197,7 +196,6 @@ fn test_aes128ks() {
     let (key_com, key_opening) = commit_aes128_keys(rng, &ck, &key);
     let proof = prover::aes128ks_prove(&mut transcript_p, &ck, key, key_opening);
 }
-
 
 #[test]
 fn test_aes256() {

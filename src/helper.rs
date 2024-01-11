@@ -17,7 +17,7 @@ pub(super) struct AesKeySchWitnessRegions {
     pub xor: usize,
     pub round_keys: usize,
     pub len: usize,
-    // pub needles_len: usize,
+    pub needles_len: usize,
 }
 
 pub(super) const fn aes_keysch_offsets<const R: usize, const N: usize>() -> AesKeySchWitnessRegions
@@ -27,6 +27,8 @@ pub(super) const fn aes_keysch_offsets<const R: usize, const N: usize>() -> AesK
         xor: 4 * R,
         round_keys: 4 * R + 4 * R,
         len: 16 * R + 4 * R + 4 * R,
+        // For aes 128: 4 * (R-1) Sbox and 320 XOR
+        needles_len: 4 * (R - 1) + 16 * (R - 1) * 2,
     }
 }
 
