@@ -4,6 +4,7 @@ pub mod aes;
 
 /// Helper module for the prover and verifier.
 mod helper;
+mod common;
 
 pub mod prover;
 pub mod verifier;

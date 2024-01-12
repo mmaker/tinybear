@@ -18,6 +18,8 @@ pub struct SigmaProof<G: CurveGroup> {
     pub response: Vec<G::ScalarField>,
 }
 
+
+
 pub fn mul_prove<G: CurveGroup>(
     csrng: &mut (impl RngCore + CryptoRng),
     transcript: &mut IOPTranscript<G::ScalarField>,
@@ -111,9 +113,9 @@ pub fn lin_prove<G: CurveGroup>(
     transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &CommitmentKey<G>,
 
-    x_vec: &Vec<G::ScalarField>, // private
-    X_opening: G::ScalarField,   // blinding factor of vec_x
-    Y_opening: G::ScalarField,   // blinding factor of y
+    x_vec: &[G::ScalarField],     // private
+    X_opening: &G::ScalarField,   // blinding factor of vec_x
+    Y_opening: &G::ScalarField,   // blinding factor of y
 
     a_vec: &[G::ScalarField], // public
 ) -> SigmaProof<G> {
@@ -135,8 +137,8 @@ pub fn lin_prove<G: CurveGroup>(
     // Compute prover's response
     let witness = x_vec
         .iter()
-        .chain(core::iter::once(&X_opening))
-        .chain(core::iter::once(&Y_opening));
+        .chain(core::iter::once(X_opening))
+        .chain(core::iter::once(Y_opening));
     for (z_i, w_i) in vec_k.iter_mut().zip(witness) {
         *z_i += c * w_i;
     }
@@ -157,7 +159,7 @@ pub fn lin_verify<G: CurveGroup>(
     transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &CommitmentKey<G>,
 
-    vec_a: &[G::ScalarField],
+    a_vec: &[G::ScalarField],
     X: &G,
     Y: &G,
 
@@ -176,7 +178,7 @@ pub fn lin_verify<G: CurveGroup>(
 
     let z_response =
         G::msm_unchecked(&ck.vec_G[..n], &proof.response[..n]) + ck.H * proof.response[n];
-    let za_response = ck.G * linalg::inner_product(&proof.response[..n], &vec_a[..n])
+    let za_response = ck.G * linalg::inner_product(&proof.response[..n], &a_vec[..n])
         + ck.H * proof.response[n + 1];
 
     transcript

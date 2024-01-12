@@ -550,6 +550,8 @@ pub fn aes256ks_prove<G: CurveGroup>(
     aes_prove::<G, 15>(transcript, ck, &witness)
 }
 
+
+
 fn aes_prove<G: CurveGroup, const R: usize>(
     transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &CommitmentKey<G>,
@@ -758,10 +760,10 @@ fn aes_prove<G: CurveGroup, const R: usize>(
         transcript,
         ck,
         &e_vec,
-        e_opening,
-        lin_M_fold_opening
+        &e_opening,
+        &(lin_M_fold_opening
             + c_batch_eval_vec[0] * lin_Q_fold_opening
-            + c_batch_eval_vec[1] * lin_Z_fold_opening,
+            + c_batch_eval_vec[1] * lin_Z_fold_opening),
         &lin_sumcheck_chals_vec,
     );
 

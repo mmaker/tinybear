@@ -8,7 +8,7 @@ use crate::linalg::powers;
 use crate::{helper, linalg, lookup, sigma, sumcheck};
 
 use crate::pedersen::CommitmentKey;
-use crate::prover::{commit_aes128_keys, TinybearProof};
+use crate::prover::TinybearProof;
 
 type ProofResult = Result<(), ()>;
 
