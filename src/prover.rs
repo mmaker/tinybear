@@ -226,12 +226,12 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesKeySchWitness<F
 
     fn compute_needles_and_frequencies(
         &self,
-        [r_xor, r2_xor, r_sbox, _r_rj2]: [F; 4],
+        [c_xor, c_xor2, c_sbox, _c_rj2]: [F; 4],
     ) -> (Vec<F>, Vec<F>, Vec<u8>) {
         let witness_s_box = self.get_s_box_witness();
         let witness_xor = self.get_xor_witness();
-        let s_box_needles = lookup::compute_u8_needles(&witness_s_box, r_sbox);
-        let xor_needles = lookup::compute_u16_needles(&witness_xor, [r_xor, r2_xor]);
+        let s_box_needles = lookup::compute_u8_needles(&witness_s_box, c_sbox);
+        let xor_needles = lookup::compute_u16_needles(&witness_xor, [c_xor, c_xor2]);
         let needles = [s_box_needles, xor_needles].concat();
 
         let mut freq_u8 = vec![0u8; 256 * 3];
@@ -245,14 +245,14 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesKeySchWitness<F
     fn trace_to_needles_map(
         &self,
         src: &[F],
-        [r_xor, r2_xor, r_sbox, _r_rj2]: [F; 4],
+        [c_xor, c_xor2, c_sbox, _c_rj2]: [F; 4],
     ) -> (Vec<F>, F) {
         let registry = aes_keysch_offsets::<R, N>();
         let mut dst = vec![F::zero(); registry.len * 2];
         let mut offset: usize = 0;
-        ks_lin_sbox_map::<F, R, N>(&mut dst, src, r_sbox);
+        ks_lin_sbox_map::<F, R, N>(&mut dst, src, c_sbox);
         offset += 4 * (R - N/4);
-        let constant_term = ks_lin_xor_map::<F, R, N>(&mut dst, &src[offset..], [r_xor, r2_xor]);
+        let constant_term = ks_lin_xor_map::<F, R, N>(&mut dst, &src[offset..], [c_xor, c_xor2]);
         (dst, constant_term)
     }
 
@@ -277,18 +277,15 @@ fn test_linear_ks() {
 
     let rng = &mut ark_std::test_rng();
     let registry = aes_keysch_offsets::<11, 4>();
-    let key = [1u8; 16];
+    let key = [
+        0xE7u8, 0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69,
+        0x0C,
+    ];
     let opening = F::from(1u8);
-    let r = [F::from(1), F::from(1), F::rand(rng), F::from(0)];
+    let r = [F::rand(rng), F::rand(rng), F::rand(rng), F::rand(rng)];
     let ks = AesKeySchWitness::<F, 11, 4>::new(&key, &opening);
     let z = ks.full_witness();
-    let mut v = vec![F::from(0); registry.needles_len];
-
-    let constraints = (10) * 4  + // s_box constraints
-    3 * 10 * 4 * 2 + 2 ;
-    println!("{} {}", v.len(), constraints);
-
-    (0..registry.needles_len).for_each(|x| v[x] = F::from(1));
+    let v = (0 .. registry.needles_len).map(|_| F::rand(rng)).collect::<Vec<_>>();
 
     let (Az, _f, _f8) = ks.compute_needles_and_frequencies(r);
     assert_eq!(Az.len(), registry.needles_len);
@@ -382,7 +379,7 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesCipherWitness<F
 
     fn compute_needles_and_frequencies(
         &self,
-        [r_xor, r2_xor, r_sbox, r_rj2]: [F; 4],
+        [c_xor, c_xor2, c_sbox, c_rj2]: [F; 4],
     ) -> (Vec<F>, Vec<F>, Vec<u8>) {
         // Generate the witness.
         // witness_s_box = [(a, sbox(a)), (b, sbox(b)), ...]
@@ -394,11 +391,11 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesCipherWitness<F
 
         // Needles: these are the elements that want to be found in the haystack.
         // s_box_needles = [x_1 + r * sbox[x_1], x_2 + r * sbox[x_2], ...]
-        let s_box_needles = lookup::compute_u8_needles(&witness_s_box, r_sbox);
+        let s_box_needles = lookup::compute_u8_needles(&witness_s_box, c_sbox);
         // r2j_needles = [x_1 + r2 * r2j[x_1], x_2 + r2 * r2j[x_2], ...]
-        let r2j_needles = lookup::compute_u8_needles(&witness_r2j, r_rj2);
+        let r2j_needles = lookup::compute_u8_needles(&witness_r2j, c_rj2);
         // xor_needles = [x_1 + r * x_2 + r2 * xor[x_1 || x_2] , ...]
-        let xor_needles = lookup::compute_u16_needles(&witness_xor, [r_xor, r2_xor]);
+        let xor_needles = lookup::compute_u16_needles(&witness_xor, [c_xor, c_xor2]);
         // concatenate all needles
         let needles = [s_box_needles, r2j_needles, xor_needles].concat();
 
@@ -575,7 +572,7 @@ fn aes_prove<G: CurveGroup, const R: usize>(
     // Get challenges for the lookup protocol.
     // one for sbox + mxcolhelp, sbox, two for xor
     let c_lup_batch = transcript.get_and_append_challenge(b"r_rj2").unwrap();
-    let [c_rj2, c_sbox, c_xor, c_xor2] = linalg::powers(c_lup_batch, 5)[1..].try_into().unwrap();
+    let [_, c_xor, c_xor2, c_sbox, c_rj2]: [G::ScalarField; 5] = linalg::powers(c_lup_batch, 5).try_into().unwrap();
     // Compute needles and frequencies
     let (f_vec, m_vec, m_u8) =
         witness.compute_needles_and_frequencies([c_xor, c_xor2, c_sbox, c_rj2]);
@@ -664,7 +661,7 @@ fn aes_prove<G: CurveGroup, const R: usize>(
     let cs_ipa_vec = linalg::tensor(&cs_ipa);
     let ipa_twist_cs_vec = linalg::hadamard(&cs_ipa_vec, &c_ipa_twist_vec);
     let (s_vec, s_const) =
-        witness.trace_to_needles_map(&ipa_twist_cs_vec, [c_sbox, c_rj2, c_xor, c_xor2]);
+        witness.trace_to_needles_map(&ipa_twist_cs_vec, [c_xor, c_xor2, c_sbox, c_rj2]);
     let z_vec = witness.full_witness();
     let c_q = transcript.get_and_append_challenge(b"bc").unwrap();
 
@@ -815,13 +812,13 @@ fn test_trace_to_needles_map() {
     let challenges = (0..11).map(|_| F::rand(rng)).collect::<Vec<_>>();
     let vector = linalg::tensor(&challenges);
 
-    let r_xor = F::rand(rng);
-    let r2_xor = F::rand(rng);
-    let r_sbox = F::rand(rng);
-    let r_rj2 = F::rand(rng);
+    let c_xor = F::rand(rng);
+    let c_xor2 = F::rand(rng);
+    let c_sbox = F::rand(rng);
+    let c_rj2 = F::rand(rng);
 
     let witness = AesCipherWitness::<F, 11, 4>::new(message, &key, F::zero(), F::zero());
-    let (needles, _, _) = witness.compute_needles_and_frequencies([r_xor, r2_xor, r_sbox, r_rj2]);
+    let (needles, _, _) = witness.compute_needles_and_frequencies([c_xor, c_xor2, c_sbox, c_rj2]);
     let got = linalg::inner_product(&needles, &vector);
 
     let cipher_trace = crate::helper::vectorize_witness::<11>(&witness.trace);
@@ -841,7 +838,7 @@ fn test_trace_to_needles_map() {
     let (needled_vector, constant_term) = crate::helper::trace_to_needles_map::<F, 11>(
         &witness.trace.output,
         &vector,
-        [r_sbox, r_rj2, r_xor, r2_xor],
+        [c_xor, c_xor2, c_sbox, c_rj2],
     );
     let expected = linalg::inner_product(&needled_vector, &trace) + constant_term;
     assert_eq!(got, expected);

@@ -274,19 +274,19 @@ fn lin_xor_addroundkey<F: Field, const R: usize>(
 pub(crate) fn trace_to_needles_map<F: Field, const R: usize>(
     output: &[u8; 16],
     src: &[F],
-    [r_sbox, r_rj2, r_xor, r2_xor]: [F; 4],
+    [c_xor, c_xor2, c_sbox, c_rj2]: [F; 4],
 ) -> (Vec<F>, F) {
     let registry = aes_offsets::<R>();
     let mut dst = vec![F::zero(); registry.len * 2];
     let mut offset = 0;
-    lin_sbox_map::<F, R>(&mut dst, src, r_sbox);
+    lin_sbox_map::<F, R>(&mut dst, src, c_sbox);
     offset += 16 * (R - 1);
-    lin_rj2_map::<F, R>(&mut dst, &src[offset..], r_rj2);
+    lin_rj2_map::<F, R>(&mut dst, &src[offset..], c_rj2);
     offset += 16 * (R - 2);
-    lin_xor_m_col_map::<F, R>(&mut dst, &src[offset..], r_xor, r2_xor);
+    lin_xor_m_col_map::<F, R>(&mut dst, &src[offset..], c_xor, c_xor2);
     offset += 16 * (R - 2) * 4 * 2;
     let constant_term =
-        lin_xor_addroundkey::<F, R>(output, &mut dst, &src[offset..], r_xor, r2_xor);
+        lin_xor_addroundkey::<F, R>(output, &mut dst, &src[offset..], c_xor, c_xor2);
 
     (dst, constant_term)
 }

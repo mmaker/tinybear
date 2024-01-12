@@ -36,7 +36,7 @@ where
         .unwrap();
 
     let c_lup_batch = transcript.get_and_append_challenge(b"r_rj2").unwrap();
-    let [_, c_rj2, c_sbox, c_xor, c_xor2] = linalg::powers(c_lup_batch, 5).try_into().unwrap();
+    let [_, c_xor, c_xor2, c_sbox, c_rj2] = linalg::powers(c_lup_batch, 5).try_into().unwrap();
 
     transcript
         .append_serializable_element(b"m", &[proof.M])
@@ -86,7 +86,7 @@ where
     let twist_vec = powers(ipa_twist, needles_len);
     let ipa_twist_cs_vec = linalg::hadamard(&ipa_cs_vec, &twist_vec);
     let (s_vec, s_const) =
-        instance.trace_to_needles_map(&ipa_twist_cs_vec, [c_sbox, c_rj2, c_xor, c_xor2]);
+        instance.trace_to_needles_map(&ipa_twist_cs_vec, [c_xor, c_xor2, c_sbox, c_rj2]);
 
     let ipa_cs_vec = linalg::tensor(&ipa_cs);
     let c_q = transcript.get_and_append_challenge(b"bc").unwrap();
