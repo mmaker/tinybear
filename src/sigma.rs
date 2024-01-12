@@ -11,14 +11,13 @@ use transcript::IOPTranscript;
 use crate::linalg;
 use crate::pedersen::commit_hiding;
 use crate::pedersen::CommitmentKey;
+use crate::traits::LinProof;
 
 #[derive(Default, CanonicalSerialize)]
 pub struct SigmaProof<G: CurveGroup> {
     pub commitment: Vec<G>,
     pub response: Vec<G::ScalarField>,
 }
-
-
 
 pub fn mul_prove<G: CurveGroup>(
     csrng: &mut (impl RngCore + CryptoRng),
@@ -87,6 +86,7 @@ pub fn mul_verify<G: CurveGroup>(
 #[test]
 fn test_mul() {
     type F = ark_curve25519::Fr;
+
     let rng = &mut rand::thread_rng();
     let ck = crate::pedersen::setup::<ark_curve25519::EdwardsProjective>(rng, 3);
     let a = ark_curve25519::Fr::rand(rng);
@@ -105,90 +105,86 @@ fn test_mul() {
     assert!(result.is_ok());
 }
 
-/// Prove that <x, a> = y, where x and y are private
-/// phi is blinder of vec_x
-/// psi is blinder of y
-pub fn lin_prove<G: CurveGroup>(
-    csrng: &mut (impl RngCore + CryptoRng),
-    transcript: &mut IOPTranscript<G::ScalarField>,
-    ck: &CommitmentKey<G>,
+#[allow(non_snake_case)]
+impl<G: CurveGroup> LinProof<G> for SigmaProof<G> {
+    fn new(
+        csrng: &mut (impl CryptoRng + RngCore),
+        transcript: &mut IOPTranscript<G::ScalarField>,
+        ck: &CommitmentKey<G>,
+        x_vec: &[G::ScalarField],
+        X_opening: &G::ScalarField,
+        Y_opening: &G::ScalarField,
+        a_vec: &[G::ScalarField],
+    ) -> Self {
+        // Create the prover's blinders
+        let mut vec_k = (0..x_vec.len())
+            .map(|_| G::ScalarField::rand(csrng))
+            .collect::<Vec<_>>();
 
-    x_vec: &[G::ScalarField],     // private
-    X_opening: &G::ScalarField,   // blinding factor of vec_x
-    Y_opening: &G::ScalarField,   // blinding factor of y
+        // Commit to the blinders and send the commitments to the verifier
+        let (K_1, kappa_1) = commit_hiding(csrng, ck, &vec_k);
+        let (K_2, kappa_2) = commit_hiding(csrng, ck, &[linalg::inner_product(&vec_k, a_vec)]);
+        vec_k.extend_from_slice(&[kappa_1, kappa_2]);
+        let K = vec![K_1, K_2];
 
-    a_vec: &[G::ScalarField], // public
-) -> SigmaProof<G> {
-    // Create the prover's blinders
-    let mut vec_k = (0..x_vec.len())
-        .map(|_| G::ScalarField::rand(csrng))
-        .collect::<Vec<_>>();
+        transcript.append_serializable_element(b"k_gg", &K).unwrap();
 
-    // Commit to the blinders and send the commitments to the verifier
-    let (K_1, kappa_1) = commit_hiding(csrng, ck, &vec_k);
-    let (K_2, kappa_2) = commit_hiding(csrng, ck, &[linalg::inner_product(&vec_k, a_vec)]);
-    vec_k.extend_from_slice(&[kappa_1, kappa_2]);
-    let K = vec![K_1, K_2];
+        // Get challenges from verifier
+        let c = transcript.get_and_append_challenge(b"c").unwrap();
+        // Compute prover's response
+        let witness = x_vec
+            .iter()
+            .chain(core::iter::once(X_opening))
+            .chain(core::iter::once(Y_opening));
+        for (z_i, w_i) in vec_k.iter_mut().zip(witness) {
+            *z_i += c * w_i;
+        }
+        let vec_z = vec_k;
 
-    transcript.append_serializable_element(b"k_gg", &K).unwrap();
+        transcript
+            .append_serializable_element(b"response", &[vec_z.clone()])
+            .unwrap();
 
-    // Get challenges from verifier
-    let c = transcript.get_and_append_challenge(b"c").unwrap();
-    // Compute prover's response
-    let witness = x_vec
-        .iter()
-        .chain(core::iter::once(X_opening))
-        .chain(core::iter::once(Y_opening));
-    for (z_i, w_i) in vec_k.iter_mut().zip(witness) {
-        *z_i += c * w_i;
+        SigmaProof {
+            commitment: K,
+            response: vec_z,
+        }
     }
-    let vec_z = vec_k;
 
-    transcript
-        .append_serializable_element(b"response", &[vec_z.clone()])
-        .unwrap();
+    fn verify(
+        &self,
+        transcript: &mut IOPTranscript<G::ScalarField>,
+        ck: &CommitmentKey<G>,
+        a_vec: &[G::ScalarField],
+        X: &G,
+        Y: &G,
+    ) -> Result<(), ()> {
+        let n = self.response.len() - 2;
+        // debug_assert!(n < vec_a.len());
 
-    SigmaProof {
-        commitment: K,
-        response: vec_z,
-    }
-}
+        // XXX. missing statement
+        transcript
+            .append_serializable_element(b"k_gg", &self.commitment)
+            .unwrap();
 
-/// Verify a proof that given commitment X, its opening x has: <x, a> = y
-pub fn lin_verify<G: CurveGroup>(
-    transcript: &mut IOPTranscript<G::ScalarField>,
-    ck: &CommitmentKey<G>,
+        // Get challenges from verifier
+        let c = transcript.get_and_append_challenge(b"c").unwrap();
 
-    a_vec: &[G::ScalarField],
-    X: &G,
-    Y: &G,
+        let z_response =
+            G::msm_unchecked(&ck.vec_G[..n], &self.response[..n]) + ck.H * self.response[n];
+        let za_response = ck.G * linalg::inner_product(&self.response[..n], &a_vec[..n])
+            + ck.H * self.response[n + 1];
 
-    proof: &SigmaProof<G>,
-) -> Result<(), ()> {
-    let n = proof.response.len() - 2;
-    // debug_assert!(n < vec_a.len());
-
-    // XXX. missing statement
-    transcript
-        .append_serializable_element(b"k_gg", &proof.commitment)
-        .unwrap();
-
-    // Get challenges from verifier
-    let c = transcript.get_and_append_challenge(b"c").unwrap();
-
-    let z_response =
-        G::msm_unchecked(&ck.vec_G[..n], &proof.response[..n]) + ck.H * proof.response[n];
-    let za_response = ck.G * linalg::inner_product(&proof.response[..n], &a_vec[..n])
-        + ck.H * proof.response[n + 1];
-
-    transcript
-        .append_serializable_element(b"response", &[proof.response.clone()])
-        .unwrap();
-    if z_response == proof.commitment[0] + X.mul(c) && za_response == proof.commitment[1] + Y.mul(c)
-    {
-        Ok(())
-    } else {
-        Err(())
+        transcript
+            .append_serializable_element(b"response", &[self.response.clone()])
+            .unwrap();
+        if z_response == self.commitment[0] + X.mul(c)
+            && za_response == self.commitment[1] + Y.mul(c)
+        {
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 }
 
@@ -215,26 +211,28 @@ fn test_lineval_correctness() {
     let rho = (0..len)
         .map(|_| ark_curve25519::Fr::rand(rng))
         .collect::<Vec<_>>();
-    let vec_a = linalg::tensor(&rho);
+    let a_vec = linalg::tensor(&rho);
 
-    let vec_x = (0..vec_a.len())
+    let x_vec = (0..a_vec.len())
         .map(|_| ark_curve25519::Fr::rand(rng))
         .collect::<Vec<_>>();
-    let (X, X_opening) = commit_hiding(rng, &ck, &vec_x);
+    let (X, X_opening) = commit_hiding(rng, &ck, &x_vec);
 
-    let y = linalg::inner_product(&vec_x, &vec_a);
+    let y = linalg::inner_product(&x_vec, &a_vec);
     let (Y, Y_opening) = commit_hiding(rng, &ck, &[y]);
 
     // Let's prove!
-    let sigma_proof = lin_prove(
+    let sigma_proof = SigmaProof::new(
         rng,
         &mut transcript_p,
         &ck,
-        &vec_x,
-        X_opening,
-        Y_opening,
-        &vec_a,
+        &x_vec,
+        &X_opening,
+        &Y_opening,
+        &a_vec,
     );
 
-    assert!(lin_verify(&mut transcript_v, &ck, &vec_a, &X, &Y, &sigma_proof).is_ok());
+    assert!(sigma_proof
+        .verify(&mut transcript_v, &ck, &a_vec, &X, &Y)
+        .is_ok());
 }

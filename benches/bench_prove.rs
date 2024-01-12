@@ -18,7 +18,7 @@ fn bench_aes128_prove(c: &mut Criterion) {
         transcript.append_message(b"init", b"init").unwrap();
 
         b.iter(|| {
-            prover::aes128_prove(
+            crate::aes128_prove(
                 &mut transcript,
                 &ck,
                 message,
@@ -55,7 +55,7 @@ fn bench_aes256_prove(c: &mut Criterion) {
 }
 
 fn bench_aes128_verify(c: &mut Criterion) {
-    use crate::prover::aes128_prove;
+    use crate::crate::aes128_prove;
 
     let rng = &mut rand::rngs::OsRng;
 

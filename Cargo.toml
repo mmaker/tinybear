@@ -19,6 +19,7 @@ ark-ec = {version="0.4.2", features=["std", "parallel"]}
 ark-ff = {version="0.4.2", features=["asm", "std", "parallel"]}
 ark-serialize = "0.4.2"
 ark-std = {version="0.4.0", features=["std", "getrandom"]}
+nimue = { version = "0.0.1-beta1", features = ["arkworks"] }
 rand = "0.8.5"
 transcript = {git="https://github.com/EspressoSystems/hyperplonk"}
 

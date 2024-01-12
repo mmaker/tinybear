@@ -4,56 +4,14 @@
 
 use ark_ec::CurveGroup;
 use ark_ff::Field;
-use ark_ff::UniformRand;
-use ark_serialize::CanonicalSerialize;
 
-use rand::{CryptoRng, RngCore};
 use transcript::IOPTranscript;
 
-use super::{aes, helper, linalg, lookup, pedersen, sigma, sumcheck, u8msm};
-use crate::aes::AesCipherTrace;
-use crate::aes::AesKeySchTrace;
-use crate::helper::aes_keysch_offsets;
-use crate::helper::trace_to_needles_map;
+use super::{aes, linalg, lookup, pedersen, sigma, sumcheck};
+use crate::aes::{AesCipherTrace, AesKeySchTrace};
 use crate::pedersen::CommitmentKey;
-use crate::sigma::SigmaProof;
-
-#[derive(Default, CanonicalSerialize)]
-pub struct TinybearProof<G: CurveGroup> {
-    // prover sends w
-    pub W: G,
-    // sends commitments
-    pub M: G, // com(m)
-    pub Q: G, // com(q)
-    // claimed evaluation of <m, h> = <q, 1>
-    pub Y: G, // com(y)
-
-    // runs sumcheck and sends commitments to folded elements
-    pub ipa_sumcheck: Vec<[G; 2]>,
-    pub ipa_Q_fold: G,
-    pub ipa_F_twist_fold: G,
-    pub mul_proof: SigmaProof<G>,
-
-    // runs sumcheck and sends commitments to folded secret elements
-    pub lin_sumcheck: Vec<[G; 2]>,
-    pub lin_M_fold: G,
-    pub lin_Q_fold: G,
-    // lin_Z_fold computed from the reduced claim
-    pub lin_proof: SigmaProof<G>,
-}
-
-pub trait Witness<F: Field> {
-    fn witness_vec(&self) -> &[u8];
-    /// Compute needles and frequencies
-    /// Return (needles, frequencies, frequencies_u8)
-    fn compute_needles_and_frequencies(&self, r: [F; 4]) -> (Vec<F>, Vec<F>, Vec<u8>);
-    fn trace_to_needles_map(&self, src: &[F], r: [F; 4]) -> (Vec<F>, F);
-    /// The full witness, aka vector z in the scheme,
-    /// is the concatenation of the public and private information.
-    fn full_witness(&self) -> Vec<F>;
-    /// The full witness opening is the opening of
-    fn full_witness_opening(&self) -> F;
-}
+use crate::registry::aes_keysch_offsets;
+use crate::traits::{LinProof, TinybearProof, Witness};
 
 pub struct AesCipherWitness<F: Field, const R: usize, const N: usize> {
     trace: AesCipherTrace,
@@ -71,9 +29,9 @@ pub struct AesKeySchWitness<F: Field, const R: usize, const N: usize> {
 }
 
 impl<F: Field, const R: usize, const N: usize> AesKeySchWitness<F, R, N> {
-    fn new(key: &[u8], &round_keys_opening: &F) -> Self {
+    pub fn new(key: &[u8], &round_keys_opening: &F) -> Self {
         let trace = AesKeySchTrace::<R, N>::new(key);
-        let witness_vec = helper::vectorize_keysch(&trace);
+        let witness_vec = Self::vectorize_keysch(&trace);
         Self {
             trace,
             witness_vec,
@@ -126,97 +84,20 @@ impl<F: Field, const R: usize, const N: usize> AesKeySchWitness<F, R, N> {
 
         witness_xor
     }
-}
 
-fn ks_lin_sbox_map<F: Field, const R: usize, const N: usize>(dst: &mut [F], v: &[F], r: F) {
-    let registry = aes_keysch_offsets::<R, N>();
-    let n_4 = N / 4;
-    let identity = [0, 1, 2, 3];
-    let mut rotated_left = identity.clone();
-    rotated_left.rotate_left(1);
+    pub(crate) fn vectorize_keysch(witness: &aes::AesKeySchTrace<R, N>) -> Vec<u8> {
+        let mut w = Vec::<u8>::new();
+        let registry = aes_keysch_offsets::<R, N>();
 
-    for round in n_4..R {
-        let idx = if N > 6 && (round * 4) % N == 4 {
-            identity
-        } else {
-            rotated_left
-        };
-        for (y_j, x_j) in idx.into_iter().enumerate() {
-            let x_pos = 16 * (round - n_4) + 3 * 4 + x_j;
-            let y_pos = 4 * round + y_j;
-
-            let c_lo = v[(round - n_4) * 4 + y_j];
-            let c_hi = c_lo.double().double().double().double();
-            dst[(registry.round_keys + x_pos) * 2] += c_lo;
-            dst[(registry.round_keys + x_pos) * 2 + 1] += c_hi;
-            dst[(registry.s_box + y_pos) * 2] += r * c_lo;
-            dst[(registry.s_box + y_pos) * 2 + 1] += r * c_hi;
-        }
+        assert_eq!(registry.s_box, w.len());
+        w.extend(witness.s_box.iter().flatten());
+        assert_eq!(registry.xor, w.len());
+        w.extend(witness.xor.iter().flatten());
+        assert_eq!(registry.round_keys, w.len());
+        w.extend(witness.round_keys.iter().flatten().flatten());
+        // split the witness and low and high 4-bits.
+        w.iter().flat_map(|x| [x & 0xf, x >> 4]).collect()
     }
-}
-
-fn ks_lin_xor_map<F: Field, const R: usize, const N: usize>(
-    dst: &mut [F],
-    v: &[F],
-    [r, r2]: [F; 2],
-) -> F {
-    let registry = aes_keysch_offsets::<R, N>();
-    // the running index over the source vector
-    let mut v_pos = 0;
-    let mut constant_term = F::from(0);
-
-    // round_keys[i - n_4][1..4] XOR round_keys[i][0..3] = round_keys[i][1..4]
-    let n_4 = N / 4;
-    for round in n_4..R {
-        for i in 1..4 {
-            for j in 0..4 {
-                let x_pos = 16 * (round - n_4) + i * 4 + j;
-                let y_pos = 16 * round + (i - 1) * 4 + j;
-                let z_pos = 16 * round + i * 4 + j;
-
-                let v_even = v[v_pos * 2];
-                let v_odd = v[v_pos * 2 + 1];
-
-                dst[(registry.round_keys + x_pos) * 2] += v_even;
-                dst[(registry.round_keys + y_pos) * 2] += r * v_even;
-                dst[(registry.round_keys + z_pos) * 2] += r2 * v_even;
-
-                dst[(registry.round_keys + x_pos) * 2 + 1] += v_odd;
-                dst[(registry.round_keys + y_pos) * 2 + 1] += r * v_odd;
-                dst[(registry.round_keys + z_pos) * 2 + 1] += r2 * v_odd;
-
-                v_pos += 1;
-            }
-        }
-    }
-
-    // at this point,
-    // v_pos = 3 * (R-1) * 4
-
-    for round in n_4..R {
-        for j in 0..4 {
-            let x_pos = 16 * (round - n_4) + j;
-            let y_pos = 4 * round + j;
-            let z_pos = 16 * round + j;
-
-            let v_even = v[v_pos * 2];
-            let v_odd = v[v_pos * 2+1];
-
-            dst[(registry.round_keys + x_pos) * 2] += v_even;
-            dst[(registry.xor + y_pos) * 2] += r * v_even;
-            dst[(registry.round_keys + z_pos) * 2] += r2 * v_even;
-
-            dst[(registry.round_keys + x_pos) * 2 + 1] += v_odd;
-            dst[(registry.xor + y_pos) * 2 + 1] += r * v_odd;
-            dst[(registry.round_keys + z_pos) * 2 + 1] += r2 * v_odd;
-
-            v_pos +=1;
-        }
-    }
-
-    // at this point,
-    // count = 3 * (R-1) * 4 + (R-1) * 4
-    constant_term
 }
 
 impl<F: Field, const R: usize, const N: usize> Witness<F> for AesKeySchWitness<F, R, N> {
@@ -250,9 +131,10 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesKeySchWitness<F
         let registry = aes_keysch_offsets::<R, N>();
         let mut dst = vec![F::zero(); registry.len * 2];
         let mut offset: usize = 0;
-        ks_lin_sbox_map::<F, R, N>(&mut dst, src, c_sbox);
-        offset += 4 * (R - N/4);
-        let constant_term = ks_lin_xor_map::<F, R, N>(&mut dst, &src[offset..], [c_xor, c_xor2]);
+        crate::constrain::ks_lin_sbox_map::<F, R, N>(&mut dst, src, c_sbox);
+        offset += 4 * (R - N / 4);
+        let constant_term =
+            crate::constrain::ks_lin_xor_map::<F, R, N>(&mut dst, &src[offset..], [c_xor, c_xor2]);
         (dst, constant_term)
     }
 
@@ -272,8 +154,8 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesKeySchWitness<F
 #[test]
 fn test_linear_ks() {
     use crate::linalg::inner_product;
-    use ark_std::UniformRand;
     use ark_curve25519::Fr as F;
+    use ark_std::UniformRand;
 
     let rng = &mut ark_std::test_rng();
     let registry = aes_keysch_offsets::<11, 4>();
@@ -285,7 +167,9 @@ fn test_linear_ks() {
     let r = [F::rand(rng), F::rand(rng), F::rand(rng), F::rand(rng)];
     let ks = AesKeySchWitness::<F, 11, 4>::new(&key, &opening);
     let z = ks.full_witness();
-    let v = (0 .. registry.needles_len).map(|_| F::rand(rng)).collect::<Vec<_>>();
+    let v = (0..registry.needles_len)
+        .map(|_| F::rand(rng))
+        .collect::<Vec<_>>();
 
     let (Az, _f, _f8) = ks.compute_needles_and_frequencies(r);
     assert_eq!(Az.len(), registry.needles_len);
@@ -296,11 +180,11 @@ fn test_linear_ks() {
 }
 
 impl<F: Field, const R: usize, const N: usize> AesCipherWitness<F, R, N> {
-    fn new(message: [u8; 16], key: &[u8], message_opening: F, key_opening: F) -> Self {
+    pub fn new(message: [u8; 16], key: &[u8], message_opening: F, key_opening: F) -> Self {
         assert_eq!(key.len(), N * 4);
         let round_keys = aes::keyschedule::<R, N>(key);
         let trace = aes::aes_trace(message, &round_keys);
-        let witness_vec = helper::vectorize_witness::<R>(&trace);
+        let witness_vec = Self::vectorize_witness(&trace);
         Self {
             trace,
             witness_vec,
@@ -309,6 +193,28 @@ impl<F: Field, const R: usize, const N: usize> AesCipherWitness<F, R, N> {
             message_opening,
             key_opening,
         }
+    }
+
+    /// Transforms an AES witness into a flattened vector representation.
+    ///
+    /// This function takes an AES witness, which captures the execution trace of AES encryption, and
+    /// turns it into a continuous vector.
+    /// Each 8-bit byte from the witness is split into two 4-bit parts to simplify
+    /// the lookup operations.
+    pub(crate) fn vectorize_witness(witness: &aes::AesCipherTrace) -> Vec<u8> {
+        let mut w = Vec::<u8>::new();
+        let registry = crate::registry::aes_offsets::<R>();
+
+        assert_eq!(registry.start, w.len());
+        w.extend(&witness.start);
+        assert_eq!(registry.s_box, w.len());
+        w.extend(&witness.s_box);
+        for i in 0..5 {
+            assert_eq!(registry.m_col[i], w.len());
+            w.extend(&witness.m_col[i]);
+        }
+        // split the witness and low and high 4-bits.
+        w.iter().flat_map(|x| [x & 0xf, x >> 4]).collect()
     }
 
     fn get_xor_witness(&self) -> Vec<(u8, u8, u8)> {
@@ -415,7 +321,8 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesCipherWitness<F
     }
 
     fn trace_to_needles_map(&self, src: &[F], r: [F; 4]) -> (Vec<F>, F) {
-        trace_to_needles_map::<_, R>(&self.trace.output, src, r)
+        let output = &self.trace.output;
+        crate::constrain::aes_trace_to_needles::<F, R>(output, src, r)
     }
 
     fn full_witness(&self) -> Vec<F> {
@@ -435,130 +342,13 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesCipherWitness<F
     }
 }
 
-pub fn commit_message<G: CurveGroup, const R: usize>(
-    csrng: &mut (impl CryptoRng + RngCore),
-    ck: &CommitmentKey<G>,
-    m: [u8; 16],
-) -> (G, G::ScalarField) {
-    let message_offset = helper::aes_offsets::<R>().message;
-    let m = m.iter().flat_map(|x| [x & 0xf, x >> 4]).collect::<Vec<_>>();
-    let message_blinder = G::ScalarField::rand(csrng);
-    let message_commitment =
-        u8msm::u8msm::<G>(&ck.vec_G[message_offset * 2..], &m) + ck.H * message_blinder;
-
-    (message_commitment, message_blinder)
-}
-
-pub fn commit_aes128_message<G: CurveGroup>(
-    csrng: &mut (impl CryptoRng + RngCore),
-    ck: &CommitmentKey<G>,
-    m: [u8; 16],
-) -> (G, G::ScalarField) {
-    commit_message::<G, 11>(csrng, ck, m)
-}
-
-pub fn commit_aes256_message<G: CurveGroup>(
-    csrng: &mut (impl CryptoRng + RngCore),
-    ck: &CommitmentKey<G>,
-    m: [u8; 16],
-) -> (G, G::ScalarField) {
-    commit_message::<G, 15>(csrng, ck, m)
-}
-
-pub fn commit_aes128_keys<G: CurveGroup>(
-    csrng: &mut (impl CryptoRng + RngCore),
-    ck: &CommitmentKey<G>,
-    key: &[u8; 16],
-) -> (G, G::ScalarField) {
-    commit_round_keys(csrng, ck, &aes::aes128_keyschedule(key))
-}
-
-pub fn commit_aes256_keys<G: CurveGroup>(
-    csrng: &mut (impl CryptoRng + RngCore),
-    ck: &CommitmentKey<G>,
-    key: &[u8; 32],
-) -> (G, G::ScalarField) {
-    commit_round_keys(csrng, ck, &aes::aes256_keyschedule(key))
-}
-
-fn commit_round_keys<G: CurveGroup, const R: usize>(
-    csrng: &mut (impl CryptoRng + RngCore),
-    ck: &CommitmentKey<G>,
-    round_keys: &[[u8; 16]; R],
-) -> (G, G::ScalarField) {
-    let kk = round_keys
-        .iter()
-        .flatten()
-        .flat_map(|x| [x & 0xf, x >> 4])
-        .collect::<Vec<_>>();
-
-    let key_blinder = G::ScalarField::rand(csrng);
-    let round_keys_offset = helper::aes_offsets::<R>().round_keys * 2;
-    let round_keys_commitment =
-        crate::u8msm::u8msm::<G>(&ck.vec_G[round_keys_offset..], &kk) + ck.H * key_blinder;
-
-    (round_keys_commitment, key_blinder)
-}
-
-#[inline]
-pub fn aes128_prove<G: CurveGroup>(
-    transcript: &mut IOPTranscript<G::ScalarField>,
-    ck: &CommitmentKey<G>,
-    message: [u8; 16],
-    message_blinder: G::ScalarField,
-    key: &[u8; 16],
-    key_blinder: G::ScalarField,
-) -> TinybearProof<G> {
-    let witness =
-        AesCipherWitness::<G::ScalarField, 11, 4>::new(message, key, message_blinder, key_blinder);
-    aes_prove::<G, 11>(transcript, ck, &witness)
-}
-
-#[inline]
-pub fn aes256_prove<G: CurveGroup>(
-    transcript: &mut IOPTranscript<G::ScalarField>,
-    ck: &CommitmentKey<G>,
-    message: [u8; 16],
-    message_blinder: G::ScalarField,
-    key: &[u8; 32],
-    key_blinder: G::ScalarField,
-) -> TinybearProof<G> {
-    let witness =
-        AesCipherWitness::<G::ScalarField, 15, 8>::new(message, key, message_blinder, key_blinder);
-    aes_prove::<G, 15>(transcript, ck, &witness)
-}
-
-#[inline]
-pub fn aes128ks_prove<G: CurveGroup>(
-    transcript: &mut IOPTranscript<G::ScalarField>,
-    ck: &CommitmentKey<G>,
-    key: [u8; 16],
-    key_blinder: G::ScalarField,
-) -> TinybearProof<G> {
-    let witness = AesKeySchWitness::<G::ScalarField, 11, 4>::new(&key, &key_blinder);
-    aes_prove::<G, 11>(transcript, ck, &witness)
-}
-
-#[inline]
-pub fn aes256ks_prove<G: CurveGroup>(
-    transcript: &mut IOPTranscript<G::ScalarField>,
-    ck: &CommitmentKey<G>,
-    key: [u8; 32],
-    key_blinder: G::ScalarField,
-) -> TinybearProof<G> {
-    let witness = AesKeySchWitness::<G::ScalarField, 15, 8>::new(&key, &key_blinder);
-    aes_prove::<G, 15>(transcript, ck, &witness)
-}
-
-
-
-fn aes_prove<G: CurveGroup, const R: usize>(
+pub fn aes_prove<G: CurveGroup, LP: LinProof<G>, const R: usize>(
     transcript: &mut IOPTranscript<G::ScalarField>,
     ck: &CommitmentKey<G>,
     witness: &impl Witness<G::ScalarField>,
-) -> TinybearProof<G> {
+) -> TinybearProof<G, LP> {
     let rng = &mut rand::rngs::OsRng;
-    let mut proof = TinybearProof::<G>::default();
+    let mut proof = TinybearProof::<G, LP>::default();
 
     // Commit to the AES trace.
     // TIME: ~3-4ms [outdated]
@@ -574,7 +364,8 @@ fn aes_prove<G: CurveGroup, const R: usize>(
     // Get challenges for the lookup protocol.
     // one for sbox + mxcolhelp, sbox, two for xor
     let c_lup_batch = transcript.get_and_append_challenge(b"r_rj2").unwrap();
-    let [_, c_xor, c_xor2, c_sbox, c_rj2]: [G::ScalarField; 5] = linalg::powers(c_lup_batch, 5).try_into().unwrap();
+    let [_, c_xor, c_xor2, c_sbox, c_rj2]: [G::ScalarField; 5] =
+        linalg::powers(c_lup_batch, 5).try_into().unwrap();
     // Compute needles and frequencies
     let (f_vec, m_vec, m_u8) =
         witness.compute_needles_and_frequencies([c_xor, c_xor2, c_sbox, c_rj2]);
@@ -755,7 +546,7 @@ fn aes_prove<G: CurveGroup, const R: usize>(
 
     let e_opening = M_opening + c_batch_eval_vec[0] * Q_opening + c_batch_eval_vec[1] * Z_opening;
 
-    proof.lin_proof = sigma::lin_prove(
+    proof.lin_proof = LP::new(
         rng,
         transcript,
         ck,
@@ -775,6 +566,7 @@ fn test_prove() {
     use ark_ff::Zero;
     type G = ark_curve25519::EdwardsProjective;
     type F = ark_curve25519::Fr;
+    use ark_serialize::CanonicalSerialize;
 
     let mut transcript = IOPTranscript::<F>::new(b"aes");
     transcript.append_message(b"init", b"init").unwrap();
@@ -789,7 +581,7 @@ fn test_prove() {
     ];
     let ck = pedersen::setup::<G>(&mut rand::thread_rng(), 2084);
 
-    let proof = aes128_prove::<G>(&mut transcript, &ck, message, F::zero(), &key, F::zero());
+    let proof = crate::aes128_prove::<G>(&mut transcript, &ck, message, F::zero(), &key, F::zero());
     println!("size: {}", proof.compressed_size());
     println!("lin size: {}", proof.lin_proof.compressed_size());
 }
@@ -823,25 +615,23 @@ fn test_trace_to_needles_map() {
     let (needles, _, _) = witness.compute_needles_and_frequencies([c_xor, c_xor2, c_sbox, c_rj2]);
     let got = linalg::inner_product(&needles, &vector);
 
-    let cipher_trace = crate::helper::vectorize_witness::<11>(&witness.trace);
     let round_keys = aes::aes128_keyschedule(&key);
 
     // these elements will be commited to a separate vector.
     let message = witness.message.iter().flat_map(|x| [x & 0xf, x >> 4]);
     let keys = round_keys.iter().flatten().flat_map(|x| [x & 0xf, x >> 4]);
 
-    let trace = cipher_trace
-        .into_iter()
+    let trace = witness
+        .witness_vec
+        .iter()
+        .copied()
         .chain(message)
         .chain(keys)
         .map(F::from)
         .collect::<Vec<_>>();
 
-    let (needled_vector, constant_term) = crate::helper::trace_to_needles_map::<F, 11>(
-        &witness.trace.output,
-        &vector,
-        [c_xor, c_xor2, c_sbox, c_rj2],
-    );
+    let (needled_vector, constant_term) =
+        witness.trace_to_needles_map(&vector, [c_xor, c_xor2, c_sbox, c_rj2]);
     let expected = linalg::inner_product(&needled_vector, &trace) + constant_term;
     assert_eq!(got, expected);
 }
