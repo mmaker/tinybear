@@ -106,7 +106,35 @@ fn test_mul() {
     assert!(result.is_ok());
 }
 
-#[allow(non_snake_case)]
+#[derive(Default, CanonicalSerialize)]
+struct CompressedSigma<G: CurveGroup>(Vec<[G; 2]>);
+
+
+impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
+    fn new(
+        csrng: &mut (impl CryptoRng + RngCore),
+        transcript: &mut IOPTranscript<<G>::ScalarField>,
+        ck: &CommitmentKey<G>,
+        x_vec: &[G::ScalarField],
+        X_opening: &G::ScalarField,
+        Y_opening: &G::ScalarField,
+        a_vec: &[G::ScalarField],
+    ) -> Self {
+        todo!()
+    }
+
+    fn verify(
+        &self,
+        transcript: &mut IOPTranscript<<G>::ScalarField>,
+        ck: &CommitmentKey<G>,
+        a_vec: &[<G>::ScalarField],
+        X: &G,
+        Y: &G,
+    ) -> ProofResult {
+        todo!()
+    }
+}
+
 impl<G: CurveGroup> LinProof<G> for SigmaProof<G> {
     fn new(
         csrng: &mut (impl CryptoRng + RngCore),

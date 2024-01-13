@@ -47,6 +47,8 @@ pub trait Instance<G: CurveGroup> {
 
 pub trait Witness<F: Field> {
     fn witness_vec(&self) -> &[u8];
+
+    fn needles_len(&self) -> usize;
     /// Compute needles and frequencies
     /// Return (needles, frequencies, frequencies_u8)
     fn compute_needles_and_frequencies(&self, r: [F; 4]) -> (Vec<F>, Vec<F>, Vec<u8>);

@@ -52,8 +52,7 @@ fn test_aes128ks() {
     let mut transcript_v = IOPTranscript::<F>::new(b"aes");
     transcript_v.append_message(b"init", b"init").unwrap();
 
-    let ck = pedersen::setup::<G>(rng, crate::registry::AES128REG.len * 2);
-
+    let ck = pedersen::setup::<G>(rng, crate::registry::aes_keysch_offsets::<11, 4>().len * 10);
     let key = *b"\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C";
 
     let (round_keys_com, key_opening) = crate::commit_aes128_key(rng, &ck, &key);

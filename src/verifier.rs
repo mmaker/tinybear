@@ -108,6 +108,7 @@ where
 
     let c_batch_eval = transcript.get_and_append_challenge(b"final").unwrap();
     let c_batch_eval2 = c_batch_eval.square();
+
     let E = proof.M + proof.Q * c_batch_eval + Z * c_batch_eval2;
     let P = proof.lin_M_fold + proof.lin_Q_fold * c_batch_eval + lin_Z_fold * c_batch_eval2;
     proof
@@ -154,8 +155,8 @@ impl<G: CurveGroup, const R: usize, const N: usize> Instance<G> for AeskeySchIns
         constrain::aes_keysch_trace_to_needles::<G::ScalarField, R, N>(src, r)
     }
 
-    fn full_witness_com(&self, w_com: &G) -> G {
-        self.round_keys_com + w_com
+    fn full_witness_com(&self, &w_com: &G) -> G {
+        w_com + self.round_keys_com
     }
 }
 

@@ -21,6 +21,7 @@ ark-serialize = "0.4.2"
 ark-std = {version="0.4.0", features=["std", "getrandom"]}
 nimue = { version = "0.0.1-beta1", features = ["arkworks"] }
 rand = "0.8.5"
+rand_chacha = "0.3.1"
 transcript = {git="https://github.com/EspressoSystems/hyperplonk"}
 
 [dev-dependencies]

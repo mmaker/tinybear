@@ -6,6 +6,8 @@ use transcript::IOPTranscript;
 
 use crate::pedersen::{self, CommitmentKey};
 
+pub(crate) struct Claim<A: AdditiveGroup>(pub Vec<A>, pub Vec<A>);
+
 fn fold_inplace<M: AdditiveGroup>(f: &mut Vec<M>, r: M::Scalar) {
     let half = (f.len() + 1) / 2;
     for i in 0..half {
@@ -94,7 +96,6 @@ where
     (challenges, claim)
 }
 
-pub(crate) struct Claim<A: AdditiveGroup>(pub Vec<A>, pub Vec<A>);
 
 impl<F: Field> Claim<F> {
     pub fn new(v: &[F], w: &[F]) -> Self {
