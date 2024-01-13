@@ -199,7 +199,8 @@ pub fn ks_lin_xor_map<F: Field, const R: usize, const N: usize>(
     let reg = registry::aes_keysch_offsets::<R, N>();
     // the running index over the source vector
     let mut v_pos = 0;
-    let mut constant_term = F::from(0);
+    // XXX. constant_term has to be mutated for supporting aes256 keyschedule
+    let constant_term = F::from(0);
 
     // round_keys[i - n_4][1..4] XOR round_keys[i][0..3] = round_keys[i][1..4]
     let n_4 = N / 4;

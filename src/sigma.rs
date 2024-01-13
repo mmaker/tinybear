@@ -107,20 +107,48 @@ fn test_mul() {
 }
 
 #[derive(Default, CanonicalSerialize)]
-struct CompressedSigma<G: CurveGroup>(Vec<[G; 2]>);
+pub struct CompressedSigma<G: CurveGroup>(Vec<[G; 2]>, G::ScalarField);
 
 
 impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
     fn new(
-        csrng: &mut (impl CryptoRng + RngCore),
+        _csrng: &mut (impl CryptoRng + RngCore),
         transcript: &mut IOPTranscript<<G>::ScalarField>,
         ck: &CommitmentKey<G>,
         x_vec: &[G::ScalarField],
-        X_opening: &G::ScalarField,
-        Y_opening: &G::ScalarField,
+        _X_opening: &G::ScalarField,
+        _Y_opening: &G::ScalarField,
         a_vec: &[G::ScalarField],
     ) -> Self {
-        todo!()
+        let n = usize::min(a_vec.len(), x_vec.len());
+
+        debug_assert!(n <= ck.vec_G.len());
+        let mut w = ark_std::cfg_iter!(a_vec).zip(ck.vec_G[.. n].iter()).map(|(a, G_i)| ck.G * a + G_i).collect::<Vec<G>>();
+        let mut v = x_vec.to_vec();
+
+        let mut msgs = Vec::new();
+        // let mut chals = Vec::new();
+        // let mut openings = Vec::new();
+
+        while w.len() + v.len() > 2 {
+            let [A, B] = crate::sumcheck::group_round_message(&v, &w);
+            // let (A, a_opening) = pedersen::commit_hiding(csrng, ck, &[a]);
+            // let (B, b_opening) = pedersen::commit_hiding(csrng, ck, &[b]);
+            // let a_opening = G::ScalarField::from(0);
+            // let b_opening = G::ScalarField::from(0);
+
+            transcript
+                .append_serializable_element(b"ab", &[A, B])
+                .unwrap();
+            let c = transcript.get_and_append_challenge(b"r").unwrap();
+            crate::sumcheck::fold_inplace(&mut v, c);
+            crate::sumcheck::fold_inplace(&mut w, c);
+
+            msgs.push([A, B]);
+            // chals.push(c);
+            // openings.push([a_opening, b_opening]);
+        }
+        CompressedSigma(msgs, v[0])
     }
 
     fn verify(
@@ -131,7 +159,17 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
         X: &G,
         Y: &G,
     ) -> ProofResult {
-        todo!()
+        let n = a_vec.len();
+        let w = ark_std::cfg_iter!(a_vec).zip(ck.vec_G[.. n].iter()).map(|(a, G_i)| (ck.G * a + G_i).into_affine()).collect::<Vec<_>>();
+        let (messages, f_folded) = (&self.0, self.1);
+        let (challenges, reduced_claim) = crate::sumcheck::reduce(transcript, messages, *X + Y);
+        let challenges_vec = crate::linalg::tensor(&challenges);
+        let w_folded = G::msm_unchecked(&w, &challenges_vec);
+        if w_folded * f_folded == reduced_claim {
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 }
 

@@ -529,8 +529,6 @@ pub fn aes_prove<G: CurveGroup, LP: LinProof<G>, const R: usize>(
     let c_batch_eval2 = c_batch_eval.square();
 
     let c_batch_eval_vec = [c_batch_eval, c_batch_eval2];
-
-
     let e_vec = linalg::linear_combination(&[&m_vec, &q_vec, &z_vec], &c_batch_eval_vec);
     debug_assert_eq!(
         linalg::inner_product(&m_vec, &lin_sumcheck_chals_vec),
@@ -558,6 +556,9 @@ pub fn aes_prove<G: CurveGroup, LP: LinProof<G>, const R: usize>(
             + c_batch_eval_vec[1] * lin_Z_fold_opening),
         &lin_sumcheck_chals_vec,
     );
+
+    // use ark_serialize::CanonicalSerialize;
+    // println!("Proof size, {}", proof.compressed_size());
 
     proof
 }

@@ -35,6 +35,7 @@ pub trait LinProof<G: CurveGroup>: CanonicalSerialize + Default {
 
 pub trait Instance<G: CurveGroup> {
     fn needles_len(&self) -> usize;
+    fn len(&self) -> usize;
 
     fn full_witness_com(&self, w_com: &G) -> G;
 

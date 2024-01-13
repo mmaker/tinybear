@@ -8,7 +8,7 @@ use crate::pedersen::{self, CommitmentKey};
 
 pub(crate) struct Claim<A: AdditiveGroup>(pub Vec<A>, pub Vec<A>);
 
-fn fold_inplace<M: AdditiveGroup>(f: &mut Vec<M>, r: M::Scalar) {
+pub fn fold_inplace<M: AdditiveGroup>(f: &mut Vec<M>, r: M::Scalar) {
     let half = (f.len() + 1) / 2;
     for i in 0..half {
         f[i] = f[i * 2] + *f.get(i * 2 + 1).unwrap_or(&M::zero()) * r;
@@ -40,7 +40,7 @@ where
     [a, b]
 }
 
-fn group_round_message<F, G>(f: &[F], g: &[G::Affine]) -> [G; 2]
+pub fn group_round_message<F, G>(f: &[F], g: &[G]) -> [G; 2]
 where
     F: PrimeField,
     G: CurveGroup<ScalarField = F>,

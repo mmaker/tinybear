@@ -89,7 +89,8 @@ where
     let lin_claim = proof.Y + (proof.ipa_Q_fold + proof.Y * c_q) * c_lin_batch + Y * c_lin_batch2;
     let (lin_sumcheck_chals, reduced_claim) =
         sumcheck::reduce(transcript, &proof.lin_sumcheck, lin_claim);
-    let lin_sumcheck_chals_vec = linalg::tensor(&lin_sumcheck_chals);
+    let n = usize::max(instance.needles_len(), instance.len());
+    let lin_sumcheck_chals_vec = &linalg::tensor(&lin_sumcheck_chals)[..n];
     let lin_h_fold = linalg::inner_product(&lin_sumcheck_chals_vec, &h_vec);
     let lin_ipa_cs_c_q_fold = linalg::inner_product(&lin_sumcheck_chals_vec, &ipa_cs_c_q_vec);
     let lin_s_fold = linalg::inner_product(&lin_sumcheck_chals_vec, &s_vec);
@@ -113,7 +114,7 @@ where
     let P = proof.lin_M_fold + proof.lin_Q_fold * c_batch_eval + lin_Z_fold * c_batch_eval2;
     proof
         .lin_proof
-        .verify(transcript, ck, &lin_sumcheck_chals_vec, &E, &P)
+        .verify(transcript, ck, lin_sumcheck_chals_vec, &E, &P)
 }
 
 pub struct AesCipherInstance<G: CurveGroup, const R: usize, const N: usize> {
@@ -147,6 +148,10 @@ impl<G: CurveGroup, const R: usize, const N: usize> Instance<G> for AeskeySchIns
         registry::aes_keysch_offsets::<R, N>().needles_len
     }
 
+    fn len(&self) -> usize {
+        registry::aes_keysch_offsets::<R, N>().len
+    }
+
     fn trace_to_needles_map(
         &self,
         src: &[G::ScalarField],
@@ -163,6 +168,10 @@ impl<G: CurveGroup, const R: usize, const N: usize> Instance<G> for AeskeySchIns
 impl<G: CurveGroup, const R: usize, const N: usize> Instance<G> for AesCipherInstance<G, R, N> {
     fn needles_len(&self) -> usize {
         registry::aes_offsets::<R>().needles_len
+    }
+
+    fn len(&self) -> usize {
+        registry::aes_offsets::<R>().len
     }
 
     fn trace_to_needles_map(
