@@ -22,6 +22,20 @@ pub fn aes_trace_to_needles<F: Field, const R: usize>(
     (dst, constant_term)
 }
 
+pub fn aes_keysch_trace_to_needles<F: Field, const R: usize, const N: usize>(
+    src: &[F],
+    [c_xor, c_xor2, c_sbox, _c_rj2]: [F; 4],
+) -> (Vec<F>, F) {
+    let registry = registry::aes_keysch_offsets::<R, N>();
+    let mut dst = vec![F::zero(); registry.len * 2];
+    let mut offset: usize = 0;
+    crate::constrain::ks_lin_sbox_map::<F, R, N>(&mut dst, src, c_sbox);
+    offset += 4 * (R - N / 4);
+    let constant_term =
+        crate::constrain::ks_lin_xor_map::<F, R, N>(&mut dst, &src[offset..], [c_xor, c_xor2]);
+    (dst, constant_term)
+}
+
 pub fn cipher_sbox<F: Field, const R: usize>(dst: &mut [F], v: &[F], r: F) {
     let identity = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
     let s_row = aes::shiftrows(identity);

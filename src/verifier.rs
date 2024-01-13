@@ -1,15 +1,14 @@
 #![allow(non_snake_case)]
+
 use ark_ec::CurveGroup;
 use ark_ff::Field;
-
 use transcript::IOPTranscript;
 
 use crate::linalg::powers;
-use crate::traits::{Instance, LinProof};
-use crate::{linalg, lookup, registry, sigma, sumcheck};
-
 use crate::pedersen::CommitmentKey;
-use crate::traits::{ProofResult, TinybearProof};
+use crate::traits::{Instance, LinProof, TinybearProof};
+use crate::ProofResult;
+use crate::{constrain, linalg, lookup, registry, sigma, sumcheck};
 
 pub fn aes_verify<G, const R: usize>(
     transcript: &mut IOPTranscript<G::ScalarField>,
@@ -41,13 +40,13 @@ where
         .unwrap();
 
     // Compute h and t
-    let needles_len = registry::aes_offsets::<R>().needles_len;
+    let needles_len = instance.needles_len();
     let (_t_vec, h_vec) = lookup::compute_haystack([c_xor, c_xor2, c_sbox, c_rj2], c_lup);
 
     // Sumcheck
-    let ipa_twist = transcript.get_and_append_challenge(b"twist").unwrap();
-    let ipa_sumcheck_claim = (ipa_twist.pow([needles_len as u64]) - G::ScalarField::from(1))
-        * (ipa_twist - G::ScalarField::from(1)).inverse().unwrap();
+    let c_ipa_twist = transcript.get_and_append_challenge(b"twist").unwrap();
+    let ipa_sumcheck_claim = (c_ipa_twist.pow([needles_len as u64]) - G::ScalarField::from(1))
+        * (c_ipa_twist - G::ScalarField::from(1)).inverse().unwrap();
     let ipa_sumcheck_claim = ck.G * ipa_sumcheck_claim;
 
     let (ipa_cs, ipa_claim_fold) =
@@ -72,7 +71,7 @@ where
     // XXXXXXX very weird potential security bug.
     // using the line below leads to failed proof verification.
     // let twist_vec = powers(twist, helper::NEEDLES_LEN+1);
-    let twist_vec = powers(ipa_twist, needles_len);
+    let twist_vec = powers(c_ipa_twist, needles_len);
     let ipa_twist_cs_vec = linalg::hadamard(&ipa_cs_vec, &twist_vec);
     let (s_vec, s_const) =
         instance.trace_to_needles_map(&ipa_twist_cs_vec, [c_xor, c_xor2, c_sbox, c_rj2]);
@@ -113,9 +112,7 @@ where
     let P = proof.lin_M_fold + proof.lin_Q_fold * c_batch_eval + lin_Z_fold * c_batch_eval2;
     proof
         .lin_proof
-        .verify(transcript, ck, &lin_sumcheck_chals_vec, &E, &P)?;
-
-    Ok(())
+        .verify(transcript, ck, &lin_sumcheck_chals_vec, &E, &P)
 }
 
 pub struct AesCipherInstance<G: CurveGroup, const R: usize, const N: usize> {
@@ -145,12 +142,16 @@ impl<G: CurveGroup, const R: usize, const N: usize> AeskeySchInstance<G, R, N> {
 }
 
 impl<G: CurveGroup, const R: usize, const N: usize> Instance<G> for AeskeySchInstance<G, R, N> {
+    fn needles_len(&self) -> usize {
+        registry::aes_keysch_offsets::<R, N>().needles_len
+    }
+
     fn trace_to_needles_map(
         &self,
-        _src: &[<G>::ScalarField],
-        _r: [<G>::ScalarField; 4],
-    ) -> (Vec<<G>::ScalarField>, <G>::ScalarField) {
-        todo!()
+        src: &[G::ScalarField],
+        r: [G::ScalarField; 4],
+    ) -> (Vec<G::ScalarField>, G::ScalarField) {
+        constrain::aes_keysch_trace_to_needles::<G::ScalarField, R, N>(src, r)
     }
 
     fn full_witness_com(&self, w_com: &G) -> G {
@@ -159,6 +160,10 @@ impl<G: CurveGroup, const R: usize, const N: usize> Instance<G> for AeskeySchIns
 }
 
 impl<G: CurveGroup, const R: usize, const N: usize> Instance<G> for AesCipherInstance<G, R, N> {
+    fn needles_len(&self) -> usize {
+        registry::aes_offsets::<R>().needles_len
+    }
+
     fn trace_to_needles_map(
         &self,
         src: &[<G>::ScalarField],

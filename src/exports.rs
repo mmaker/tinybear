@@ -6,9 +6,11 @@ use transcript::IOPTranscript;
 use crate::pedersen::CommitmentKey;
 use crate::prover::{aes_prove, AesCipherWitness, AesKeySchWitness};
 use crate::sigma::SigmaProof;
-use crate::traits::{LinProof, ProofResult, TinybearProof};
+use crate::traits::{LinProof, TinybearProof};
 use crate::verifier::{aes_verify, AesCipherInstance, AeskeySchInstance};
 use crate::{aes, registry, u8msm};
+
+pub type ProofResult = Result<(), ()>;
 
 #[inline]
 pub fn aes128_prove<G: CurveGroup>(
@@ -105,11 +107,11 @@ pub fn commit_message<G: CurveGroup, const R: usize>(
     ck: &CommitmentKey<G>,
     m: [u8; 16],
 ) -> (G, G::ScalarField) {
-    let message_offset = registry::aes_offsets::<R>().message;
+    let m_offset = registry::aes_offsets::<R>().message;
     let m = m.iter().flat_map(|x| [x & 0xf, x >> 4]).collect::<Vec<_>>();
     let message_blinder = G::ScalarField::rand(csrng);
     let message_commitment =
-        crate::u8msm::u8msm::<G>(&ck.vec_G[message_offset * 2..], &m) + ck.H * message_blinder;
+        crate::u8msm::u8msm::<G>(&ck.vec_G[m_offset * 2..], &m) + ck.H * message_blinder;
 
     (message_commitment, message_blinder)
 }

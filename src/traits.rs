@@ -6,8 +6,7 @@ use transcript::IOPTranscript;
 
 use crate::pedersen::CommitmentKey;
 use crate::sigma::SigmaProof;
-
-pub type ProofResult = Result<(), ()>;
+use crate::ProofResult;
 
 pub trait LinProof<G: CurveGroup>: CanonicalSerialize + Default {
     /// Prove that <x, a> = y, where x and y are private
@@ -31,10 +30,12 @@ pub trait LinProof<G: CurveGroup>: CanonicalSerialize + Default {
         a_vec: &[G::ScalarField],
         X: &G,
         Y: &G,
-    ) -> Result<(), ()>;
+    ) -> ProofResult;
 }
 
 pub trait Instance<G: CurveGroup> {
+    fn needles_len(&self) -> usize;
+
     fn full_witness_com(&self, w_com: &G) -> G;
 
     fn trace_to_needles_map(
@@ -61,7 +62,7 @@ pub trait Witness<F: Field> {
 pub struct TinybearProof<G, LP>
 where
     G: CurveGroup,
-    LP: crate::traits::LinProof<G>,
+    LP: LinProof<G>,
 {
     // prover sends w
     pub W: G,

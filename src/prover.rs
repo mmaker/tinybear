@@ -1,5 +1,4 @@
 //! See Figure 8 in the paper to learn how this protocol works
-
 #![allow(non_snake_case)]
 
 use ark_ec::CurveGroup;
@@ -9,6 +8,7 @@ use transcript::IOPTranscript;
 
 use super::{aes, linalg, lookup, pedersen, sigma, sumcheck};
 use crate::aes::{AesCipherTrace, AesKeySchTrace};
+use crate::constrain;
 use crate::pedersen::CommitmentKey;
 use crate::registry::aes_keysch_offsets;
 use crate::traits::{LinProof, TinybearProof, Witness};
@@ -123,19 +123,8 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesKeySchWitness<F
         (needles, freq, freq_u8)
     }
 
-    fn trace_to_needles_map(
-        &self,
-        src: &[F],
-        [c_xor, c_xor2, c_sbox, _c_rj2]: [F; 4],
-    ) -> (Vec<F>, F) {
-        let registry = aes_keysch_offsets::<R, N>();
-        let mut dst = vec![F::zero(); registry.len * 2];
-        let mut offset: usize = 0;
-        crate::constrain::ks_lin_sbox_map::<F, R, N>(&mut dst, src, c_sbox);
-        offset += 4 * (R - N / 4);
-        let constant_term =
-            crate::constrain::ks_lin_xor_map::<F, R, N>(&mut dst, &src[offset..], [c_xor, c_xor2]);
-        (dst, constant_term)
+    fn trace_to_needles_map(&self, src: &[F], r: [F; 4]) -> (Vec<F>, F) {
+        constrain::aes_keysch_trace_to_needles::<F, R, N>(src, r)
     }
 
     fn full_witness(&self) -> Vec<F> {
@@ -469,7 +458,6 @@ pub fn aes_prove<G: CurveGroup, LP: LinProof<G>, const R: usize>(
     let c_lin_batch = transcript.get_and_append_challenge(b"sumcheck2").unwrap();
     let c_lin_batch_vec = [c_lin_batch, c_lin_batch.square()];
     let mut lin_claims = [
-        // <m_vec, h_vec> = y
         sumcheck::Claim::new(&m_vec, &h_vec),
         // <q_vec, ipa_cs_vec + c_q * 1> = q_fold + c_q * y
         sumcheck::Claim::new(&q_vec, &cs_ipa_c_q_vec),

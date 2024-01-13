@@ -12,6 +12,7 @@ use crate::linalg;
 use crate::pedersen::commit_hiding;
 use crate::pedersen::CommitmentKey;
 use crate::traits::LinProof;
+use crate::ProofResult;
 
 #[derive(Default, CanonicalSerialize)]
 pub struct SigmaProof<G: CurveGroup> {
@@ -59,7 +60,7 @@ pub fn mul_verify<G: CurveGroup>(
     B: G,
     C: G,
     proof: &SigmaProof<G>,
-) -> Result<(), ()> {
+) -> ProofResult {
     transcript
         .append_serializable_element(b"k_gg", &proof.commitment)
         .unwrap();
@@ -158,7 +159,7 @@ impl<G: CurveGroup> LinProof<G> for SigmaProof<G> {
         a_vec: &[G::ScalarField],
         X: &G,
         Y: &G,
-    ) -> Result<(), ()> {
+    ) -> ProofResult {
         let n = self.response.len() - 2;
         // debug_assert!(n < vec_a.len());
 
@@ -198,10 +199,10 @@ fn test_lineval_correctness() {
     // Basic setup
     let rng = &mut rand::rngs::OsRng;
 
-    let mut transcript_p = IOPTranscript::<ark_curve25519::Fr>::new(b"sumcheck");
+    let mut transcript_p = IOPTranscript::<ark_curve25519::Fr>::new(b"lineval");
     transcript_p.append_message(b"init", b"init").unwrap();
 
-    let mut transcript_v = IOPTranscript::<ark_curve25519::Fr>::new(b"sumcheck");
+    let mut transcript_v = IOPTranscript::<ark_curve25519::Fr>::new(b"lineval");
     transcript_v.append_message(b"init", b"init").unwrap();
 
     let ck = pedersen::setup::<G>(rng, 2084);
