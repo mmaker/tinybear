@@ -1,105 +1,105 @@
 use ark_ec::CurveGroup;
 use ark_std::UniformRand;
+use nimue::plugins::arkworks::{ArkGroupArthur, ArkGroupMerlin};
+use nimue::InvalidTag;
 use rand::{CryptoRng, RngCore};
-use transcript::IOPTranscript;
 
 use crate::pedersen::CommitmentKey;
 use crate::prover::{aes_prove, AesCipherWitness, AesKeySchWitness};
-use crate::sigma::SigmaProof;
-use crate::traits::{LinProof, TinybearProof};
+use crate::sigma::{self, SigmaProof};
 use crate::verifier::{aes_verify, AesCipherInstance, AeskeySchInstance};
 use crate::{aes, registry, u8msm};
 
 pub type ProofResult = Result<(), ()>;
+pub use crate::traits::*;
 
 #[inline]
-pub fn aes128_prove<G: CurveGroup>(
-    transcript: &mut IOPTranscript<G::ScalarField>,
+pub fn aes128_prove<'a, G: CurveGroup>(
+    arthur: &'a mut ArkGroupArthur<G>,
     ck: &CommitmentKey<G>,
     message: [u8; 16],
     message_blinder: G::ScalarField,
     key: &[u8; 16],
     key_blinder: G::ScalarField,
-) -> TinybearProof<G, impl LinProof<G>> {
+) -> Result<&'a [u8], Option<InvalidTag>> {
     let witness =
         AesCipherWitness::<G::ScalarField, 11, 4>::new(message, key, message_blinder, key_blinder);
-    aes_prove::<G, SigmaProof<G>, 11>(transcript, ck, &witness)
+    aes_prove::<G, SigmaProof<G>, 11>(arthur, ck, &witness)
 }
 
 #[inline]
-pub fn aes128ks_prove<G: CurveGroup>(
-    transcript: &mut IOPTranscript<G::ScalarField>,
+pub fn aes128ks_prove<'a, G: CurveGroup>(
+    arthur: &'a mut ArkGroupArthur<G>,
     ck: &CommitmentKey<G>,
     key: [u8; 16],
     key_blinder: G::ScalarField,
-) -> TinybearProof<G, impl LinProof<G>> {
+) -> Result<&'a [u8], Option<InvalidTag>> {
     let witness = AesKeySchWitness::<G::ScalarField, 11, 4>::new(&key, &key_blinder);
-    aes_prove::<G, SigmaProof<G>, 11>(transcript, ck, &witness)
+    aes_prove::<G, SigmaProof<G>, 11>(arthur, ck, &witness)
 }
 
 #[inline]
 pub fn aes128_verify<G: CurveGroup>(
-    transcript: &mut IOPTranscript<G::ScalarField>,
+    merlin: &mut ArkGroupMerlin<G>,
     ck: &CommitmentKey<G>,
     message_commitment: &G,
     round_keys_commitment: &G,
     ctx: [u8; 16],
-    proof: &TinybearProof<G, impl LinProof<G>>,
 ) -> ProofResult {
     let instance =
         AesCipherInstance::<G, 11, 4>::new(message_commitment, round_keys_commitment, ctx);
-    aes_verify::<G, 11>(transcript, ck, &instance, proof)
+    aes_verify::<G, SigmaProof<G>, 11>(merlin, ck, &instance).unwrap();
+    Ok(())
 }
 
 #[inline]
 pub fn aes128ks_verify<G: CurveGroup>(
-    transcript: &mut IOPTranscript<G::ScalarField>,
+    merlin: &mut ArkGroupMerlin<G>,
     ck: &CommitmentKey<G>,
     round_keys_com: G,
-    proof: &TinybearProof<G, impl LinProof<G>>,
 ) -> ProofResult {
     let instance = AeskeySchInstance::<G, 11, 4>::new(&round_keys_com);
-    aes_verify::<G, 11>(transcript, ck, &instance, proof)
+    aes_verify::<G, SigmaProof<G>, 11>(merlin, ck, &instance).unwrap();
+    Ok(())
 }
 
 #[inline]
-pub fn aes256_prove<G: CurveGroup>(
-    transcript: &mut IOPTranscript<G::ScalarField>,
+pub fn aes256_prove<'a, G: CurveGroup>(
+    arthur: &'a mut ArkGroupArthur<G>,
     ck: &CommitmentKey<G>,
     message: [u8; 16],
     message_blinder: G::ScalarField,
     key: &[u8; 32],
     key_blinder: G::ScalarField,
-) -> TinybearProof<G, impl LinProof<G>> {
+) -> Result<&'a [u8], Option<InvalidTag>> {
     let witness =
         AesCipherWitness::<G::ScalarField, 15, 8>::new(message, key, message_blinder, key_blinder);
-    aes_prove::<G, SigmaProof<G>, 15>(transcript, ck, &witness)
+    aes_prove::<G, SigmaProof<G>, 15>(arthur, ck, &witness)
 }
 
 #[inline]
-pub fn aes256ks_prove<G: CurveGroup>(
-    transcript: &mut IOPTranscript<G::ScalarField>,
+pub fn aes256ks_prove<'a, G: CurveGroup>(
+    arthur: &'a mut ArkGroupArthur<G>,
     ck: &CommitmentKey<G>,
     key: [u8; 32],
     key_blinder: G::ScalarField,
-) -> TinybearProof<G, impl LinProof<G>> {
+) -> Result<&'a [u8], Option<InvalidTag>> {
     let witness = AesKeySchWitness::<G::ScalarField, 15, 8>::new(&key, &key_blinder);
-    aes_prove::<G, SigmaProof<G>, 15>(transcript, ck, &witness)
+    aes_prove::<G, SigmaProof<G>, 15>(arthur, ck, &witness)
 }
 
 pub fn aes256_verify<G>(
-    transcript: &mut IOPTranscript<G::ScalarField>,
+    merlin: &mut ArkGroupMerlin<G>,
     ck: &CommitmentKey<G>,
     m_com: &G,
     rk_com: &G,
     ctx: [u8; 16],
-    proof: &TinybearProof<G, impl LinProof<G>>,
-) -> ProofResult
+) -> Result<(), nimue::InvalidTag>
 where
     G: CurveGroup,
 {
     let instance = AesCipherInstance::<G, 15, 8>::new(m_com, rk_com, ctx);
-    aes_verify::<G, 15>(transcript, ck, &instance, proof)
+    aes_verify::<G, sigma::SigmaProof<G>, 15>(merlin, ck, &instance)
 }
 
 pub fn commit_message<G: CurveGroup, const R: usize>(

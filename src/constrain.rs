@@ -9,7 +9,7 @@ pub fn aes_trace_to_needles<F: Field, const R: usize>(
 ) -> (Vec<F>, F) {
     let reg = registry::aes_offsets::<R>();
 
-    let mut dst = vec![F::zero(); reg.len * 2];
+    let mut dst = vec![F::zero(); reg.witness_len * 2];
     let mut offset = 0;
     cipher_sbox::<F, R>(&mut dst, src, c_sbox);
     offset += 16 * (R - 1);
@@ -27,7 +27,7 @@ pub fn aes_keysch_trace_to_needles<F: Field, const R: usize, const N: usize>(
     [c_xor, c_xor2, c_sbox, _c_rj2]: [F; 4],
 ) -> (Vec<F>, F) {
     let registry = registry::aes_keysch_offsets::<R, N>();
-    let mut dst = vec![F::zero(); registry.len * 2];
+    let mut dst = vec![F::zero(); registry.witness_len * 2];
     let mut offset: usize = 0;
     crate::constrain::ks_lin_sbox_map::<F, R, N>(&mut dst, src, c_sbox);
     offset += 4 * (R - N / 4);

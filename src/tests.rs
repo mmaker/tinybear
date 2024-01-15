@@ -1,42 +1,44 @@
-use transcript::IOPTranscript;
+use nimue::plugins::arkworks::ArkGroupIOPattern;
 
-use crate::{aes, pedersen};
+use crate::{aes, pedersen, TinybearIO};
 
 type G = ark_curve25519::EdwardsProjective;
-type F = ark_curve25519::Fr;
+// type F = ark_curve25519::Fr;
 
 #[test]
 fn test_aes128() {
-    let mut transcript_p = IOPTranscript::<F>::new(b"aes");
-    transcript_p.append_message(b"init", b"init").unwrap();
-    let rng = &mut rand::rngs::OsRng;
+    let iop = ArkGroupIOPattern::<G>::new("tinybear test aes128").aes128_io();
 
-    let mut transcript_v = IOPTranscript::<F>::new(b"aes");
-    transcript_v.append_message(b"init", b"init").unwrap();
+    let mut arthur = iop.to_arthur();
+    let ck = pedersen::setup::<G>(arthur.rng(), crate::registry::AES128REG.witness_len * 2);
 
-    let ck = pedersen::setup::<G>(&mut rand::thread_rng(), crate::registry::AES128REG.len * 2);
-
+    println!("len: {}", crate::registry::AES128REG.witness_len);
     let message = *b"\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C\xE7";
     let key = *b"\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C";
     let ctx = aes::aes128(message, key);
 
-    let (message_commitment, message_blinder) = crate::commit_aes128_message(rng, &ck, message);
-    let (round_keys_commitment, round_keys_blinder) = crate::commit_aes128_key(rng, &ck, &key);
-    let proof = crate::aes128_prove(
-        &mut transcript_p,
+    let (message_commitment, message_blinder) =
+        crate::commit_aes128_message(arthur.rng(), &ck, message);
+    let (round_keys_commitment, round_keys_blinder) =
+        crate::commit_aes128_key(arthur.rng(), &ck, &key);
+    let proof_result = crate::aes128_prove(
+        &mut arthur,
         &ck,
         message,
         message_blinder,
         &key,
         round_keys_blinder,
     );
+    assert!(proof_result.is_ok());
+    let proof = &proof_result.unwrap().to_vec();
+    drop(arthur);
+    let mut merlin = iop.to_merlin(proof);
     let result = crate::aes128_verify(
-        &mut transcript_v,
+        &mut merlin,
         &ck,
         &message_commitment,
         &round_keys_commitment,
         ctx,
-        &proof,
     );
     assert!(result.is_ok());
 }
@@ -44,66 +46,60 @@ fn test_aes128() {
 #[ignore = "rearrange keyschedule registry"]
 #[test]
 fn test_aes128ks() {
-    use crate::pedersen;
+    let iop = ArkGroupIOPattern::<G>::new("tinybear test aes128").aes128ks_io();
 
-    let mut transcript_p = IOPTranscript::<F>::new(b"aes");
-    transcript_p.append_message(b"init", b"init").unwrap();
-    let rng = &mut rand::rngs::OsRng;
+    let mut arthur = iop.to_arthur();
 
-    let mut transcript_v = IOPTranscript::<F>::new(b"aes");
-    transcript_v.append_message(b"init", b"init").unwrap();
-
-    let ck = pedersen::setup::<G>(rng, crate::registry::aes_keysch_offsets::<11, 4>().len * 10);
+    let ck = pedersen::setup::<G>(
+        arthur.rng(),
+        crate::registry::aes_keysch_offsets::<11, 4>().witness_len * 10,
+    );
     let key = *b"\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C";
 
-    let (round_keys_com, key_opening) = crate::commit_aes128_key(rng, &ck, &key);
-    let proof = crate::aes128ks_prove(&mut transcript_p, &ck, key, key_opening);
+    let (round_keys_com, key_opening) = crate::commit_aes128_key(arthur.rng(), &ck, &key);
+    let proof_result = crate::aes128ks_prove(&mut arthur, &ck, key, key_opening);
+    assert!(proof_result.is_ok());
 
     // The reason that this test fails that:
     // commitments to the round_keys for AES cipher proofs use a specific index in the committer key
     // which is different to the commitments of the AES keyschedule
     // reorganizing the witness for keyschedule and the registers will fix this.
     // It will not affect the running time.
-    assert!(crate::aes128ks_verify(&mut transcript_v, &ck, round_keys_com, &proof).is_ok());
+    let mut merlin = iop.to_merlin(proof_result.unwrap());
+    assert!(crate::aes128ks_verify(&mut merlin, &ck, round_keys_com).is_ok());
 }
 
 #[test]
 fn test_aes256() {
-    use crate::{aes, pedersen};
+    let iop = ArkGroupIOPattern::<G>::new("tinybear test aes256").aes256_io();
+    let mut arthur = iop.to_arthur();
 
-    type G = ark_curve25519::EdwardsProjective;
-    type F = ark_curve25519::Fr;
-
-    let mut transcript_p = IOPTranscript::<F>::new(b"aes");
-    transcript_p.append_message(b"init", b"init").unwrap();
-    let rng = &mut rand::rngs::OsRng;
-
-    let mut transcript_v = IOPTranscript::<F>::new(b"aes");
-    transcript_v.append_message(b"init", b"init").unwrap();
-
-    let ck = pedersen::setup::<G>(rng, crate::registry::AES256REG.len * 2);
+    let ck = pedersen::setup::<G>(arthur.rng(), crate::registry::AES256REG.witness_len * 2);
 
     let message = *b"\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C\xE7";
     let key = *b"\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C";
     let ctx = aes::aes256(message, key);
 
-    let (message_commitment, message_blinder) = crate::commit_aes256_message(rng, &ck, message);
-    let (round_keys_commitment, round_keys_blinder) = crate::commit_aes256_keys(rng, &ck, &key);
-    let proof = crate::aes256_prove(
-        &mut transcript_p,
+    let (message_commitment, message_blinder) =
+        crate::commit_aes256_message(arthur.rng(), &ck, message);
+    let (round_keys_commitment, round_keys_blinder) =
+        crate::commit_aes256_keys(arthur.rng(), &ck, &key);
+    let proof_result = crate::aes256_prove(
+        &mut arthur,
         &ck,
         message,
         message_blinder,
         &key,
         round_keys_blinder,
     );
+    assert!(proof_result.is_ok());
+    let mut merlin = iop.to_merlin(proof_result.unwrap());
     let result = crate::aes256_verify(
-        &mut transcript_v,
+        &mut merlin,
         &ck,
         &message_commitment,
         &round_keys_commitment,
         ctx,
-        &proof,
     );
     assert!(result.is_ok());
 }

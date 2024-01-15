@@ -5,7 +5,7 @@ pub(super) struct AesWitnessRegions {
     pub m_col: [usize; 5],
     pub message: usize,
     pub round_keys: usize,
-    pub len: usize,
+    pub witness_len: usize,
     pub needles_len: usize,
 }
 
@@ -13,7 +13,7 @@ pub(super) struct AesKeySchWitnessRegions {
     pub s_box: usize,
     pub xor: usize,
     pub round_keys: usize,
-    pub len: usize,
+    pub witness_len: usize,
     pub needles_len: usize,
 }
 
@@ -23,7 +23,7 @@ pub(super) const fn aes_keysch_offsets<const R: usize, const N: usize>() -> AesK
         s_box: 0,
         xor: 4 * R,
         round_keys: 4 * R + 4 * R,
-        len: 16 * R + 4 * R + 4 * R,
+        witness_len: 16 * R + 4 * R + 4 * R,
         // For aes 128: 4 * (R-1) Sbox and 320 XOR
         needles_len: 4 * (R - 1) + 16 * (R - 1) * 2,
     }
@@ -91,12 +91,11 @@ pub(super) const fn aes_offsets<const R: usize>() -> AesWitnessRegions {
         m_col,
         message,
         round_keys,
-        len: round_keys + 16 * R,
+        witness_len: round_keys + 16 * R,
         needles_len,
     }
 }
 
-#[allow(dead_code)]
 pub const AES128REG: AesWitnessRegions = aes_offsets::<11>();
-#[allow(dead_code)]
 pub const AES256REG: AesWitnessRegions = aes_offsets::<15>();
+pub const AES128KSREG: AesKeySchWitnessRegions = aes_keysch_offsets::<11, 4>();

@@ -1,41 +1,73 @@
 use ark_ec::CurveGroup;
 use ark_ff::Field;
 use ark_serialize::CanonicalSerialize;
-use rand::{CryptoRng, RngCore};
-use transcript::IOPTranscript;
+use nimue::plugins::arkworks::prelude::ArkGroupIOPattern;
+use nimue::plugins::arkworks::ArkGroupArthur;
+use nimue::plugins::arkworks::ArkGroupMerlin;
+use nimue::{DuplexHash, InvalidTag};
 
 use crate::pedersen::CommitmentKey;
+use crate::registry;
 use crate::sigma::SigmaProof;
-use crate::ProofResult;
+
+pub trait TinybearIO: SumcheckIO + MulProofIO + LinProofIO + Sized {
+    fn tinybear_statement(self) -> Self;
+    fn tinybear_io(self, needles_len: usize, witness_len: usize) -> Self;
+
+    fn aes128_io(self) -> Self {
+        let reg = registry::AES128REG;
+        self.tinybear_io(reg.needles_len, reg.witness_len)
+    }
+
+    fn aes256_io(self) -> Self {
+        let reg = registry::AES256REG;
+        self.tinybear_io(reg.needles_len, reg.witness_len)
+    }
+
+    fn aes128ks_io(self) -> Self {
+        let reg = registry::AES128KSREG;
+        self.tinybear_io(reg.needles_len, reg.witness_len)
+    }
+}
+
+pub trait SumcheckIO {
+    fn sumcheck_io(self, len: usize) -> Self;
+}
+
+pub trait LinProofIO {
+    fn linproof_io(self, len: usize) -> Self;
+}
+
+pub trait MulProofIO {
+    fn mulproof_io(self) -> Self;
+}
 
 pub trait LinProof<G: CurveGroup>: CanonicalSerialize + Default {
     /// Prove that <x, a> = y, where x and y are private
     /// phi is blinder of vec_x
     /// psi is blinder of y
-    fn new(
-        csrng: &mut (impl CryptoRng + RngCore),
-        transcript: &mut IOPTranscript<G::ScalarField>,
+    fn new<'a>(
+        arthur: &'a mut ArkGroupArthur<G>,
         ck: &CommitmentKey<G>,
         x_vec: &[G::ScalarField],
         X_opening: &G::ScalarField,
         Y_opening: &G::ScalarField,
         a_vec: &[G::ScalarField],
-    ) -> Self;
+    ) -> Result<&'a [u8], InvalidTag>;
 
     /// Verify a proof that given commitment X, its opening x has: <x, a> = y
     fn verify(
-        &self,
-        transcript: &mut IOPTranscript<G::ScalarField>,
+        merlin: &mut ArkGroupMerlin<G>,
         ck: &CommitmentKey<G>,
         a_vec: &[G::ScalarField],
         X: &G,
         Y: &G,
-    ) -> ProofResult;
+    ) -> Result<(), Option<InvalidTag>>;
 }
 
 pub trait Instance<G: CurveGroup> {
     fn needles_len(&self) -> usize;
-    fn len(&self) -> usize;
+    fn witness_len(&self) -> usize;
 
     fn full_witness_com(&self, w_com: &G) -> G;
 
@@ -61,6 +93,29 @@ pub trait Witness<F: Field> {
     fn full_witness_opening(&self) -> F;
 }
 
+impl<G: CurveGroup, H: DuplexHash<u8>> TinybearIO for ArkGroupIOPattern<G, H, u8> {
+    fn tinybear_statement(self) -> Self {
+        todo!()
+    }
+
+    fn tinybear_io(self, needles_len: usize, witness_len: usize) -> Self {
+        self.add_points(1, "witness")
+            .challenge_scalars(1, "batch lookup (c_lup_batch)")
+            .add_points(1, "lookup frequences (M)")
+            .challenge_scalars(1, "lookup (c_lup)")
+            .add_points(2, "inverse needles and claimed IP (Q, Y)")
+            .challenge_scalars(1, "IPA twist (c_ipa_twist)")
+            .sumcheck_io(needles_len)
+            .add_points(2, "ipa_Q_fold, ipa_F_twist_fold")
+            .mulproof_io()
+            .challenge_scalars(1, "c_q")
+            .challenge_scalars(1, "c_lin_batch")
+            .sumcheck_io(witness_len * 2)
+            .add_points(2, "lin_M_fold, lin_Q_fold")
+            .challenge_scalars(1, "c_batch_eval")
+            .linproof_io(witness_len * 2)
+    }
+}
 #[derive(Default, CanonicalSerialize)]
 pub struct TinybearProof<G, LP>
 where

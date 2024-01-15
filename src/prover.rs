@@ -4,14 +4,14 @@
 use ark_ec::CurveGroup;
 use ark_ff::Field;
 
-use transcript::IOPTranscript;
+use nimue::plugins::arkworks::ArkGroupArthur;
+use nimue::InvalidTag;
 
-use super::{aes, linalg, lookup, pedersen, sigma, sumcheck};
+use super::{aes, constrain, linalg, lookup, pedersen, sigma, sumcheck};
 use crate::aes::{AesCipherTrace, AesKeySchTrace};
-use crate::constrain;
 use crate::pedersen::CommitmentKey;
 use crate::registry::{aes_keysch_offsets, aes_offsets};
-use crate::traits::{LinProof, TinybearProof, Witness};
+use crate::traits::{LinProof, Witness};
 
 pub struct AesCipherWitness<F: Field, const R: usize, const N: usize> {
     trace: AesCipherTrace,
@@ -132,7 +132,13 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesKeySchWitness<F
     }
 
     fn full_witness(&self) -> Vec<F> {
-        let round_keys = self.trace.round_keys.iter().flatten().flatten().flat_map(|x| [x & 0xf, x >> 4]);
+        let round_keys = self
+            .trace
+            .round_keys
+            .iter()
+            .flatten()
+            .flatten()
+            .flat_map(|x| [x & 0xf, x >> 4]);
         self.witness_vec
             .iter()
             .copied()
@@ -341,28 +347,22 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesCipherWitness<F
     }
 }
 
-pub fn aes_prove<G: CurveGroup, LP: LinProof<G>, const R: usize>(
-    transcript: &mut IOPTranscript<G::ScalarField>,
+pub fn aes_prove<'a, G: CurveGroup, LP: LinProof<G>, const R: usize>(
+    arthur: &'a mut ArkGroupArthur<G>,
     ck: &CommitmentKey<G>,
     witness: &impl Witness<G::ScalarField>,
-) -> TinybearProof<G, LP> {
-    let rng = &mut rand::rngs::OsRng;
-    let mut proof = TinybearProof::<G, LP>::default();
-
+) -> Result<&'a [u8], Option<InvalidTag>> {
     // Commit to the AES trace.
     // TIME: ~3-4ms [outdated]
     let w_vec = witness.witness_vec();
-    let (W, W_opening) = pedersen::commit_hiding_u8(rng, ck, w_vec);
+    let (W, W_opening) = pedersen::commit_hiding_u8(arthur.rng(), ck, w_vec);
     // Send W
-    proof.W = W;
-    transcript
-        .append_serializable_element(b"witness_com", &[proof.W])
-        .unwrap();
+    arthur.add_points(&[W]).unwrap();
 
     // Lookup
     // Get challenges for the lookup protocol.
     // one for sbox + mxcolhelp, sbox, two for xor
-    let c_lup_batch = transcript.get_and_append_challenge(b"r_rj2").unwrap();
+    let [c_lup_batch] = arthur.challenge_scalars().unwrap();
     let [_, c_xor, c_xor2, c_sbox, c_rj2]: [G::ScalarField; 5] =
         linalg::powers(c_lup_batch, 5).try_into().unwrap();
 
@@ -371,23 +371,20 @@ pub fn aes_prove<G: CurveGroup, LP: LinProof<G>, const R: usize>(
         witness.compute_needles_and_frequencies([c_xor, c_xor2, c_sbox, c_rj2]);
     debug_assert_eq!(f_vec.len(), witness.needles_len());
     // Commit to m (using mu as the blinder) and send it over
-    let (M, M_opening) = pedersen::commit_hiding_u8(rng, ck, &m_u8);
+    let (M, M_opening) = pedersen::commit_hiding_u8(arthur.rng(), ck, &m_u8);
     // Send M
-    proof.M = M;
-    transcript
-        .append_serializable_element(b"m", &[proof.M])
-        .unwrap();
+    arthur.add_points(&[M]).unwrap();
 
     // Get the lookup challenge c and compute q and y
-    let c_lup = transcript.get_and_append_challenge(b"c").unwrap();
+    let [c_lup] = arthur.challenge_scalars().unwrap();
     // Compute vector inverse_needles[i] = 1 / (needles[i] + a) = q
     let mut q_vec = linalg::add_constant(&f_vec, c_lup);
     ark_ff::batch_inversion(&mut q_vec);
     // Q = Com(q)
-    let (Q, Q_opening) = pedersen::commit_hiding(rng, ck, &q_vec);
+    let (Q, Q_opening) = pedersen::commit_hiding(arthur.rng(), ck, &q_vec);
     // y = <g,1>
     let y = q_vec.iter().sum();
-    let (Y, Y_opening) = pedersen::commit_hiding(rng, ck, &[y]);
+    let (Y, Y_opening) = pedersen::commit_hiding(arthur.rng(), ck, &[y]);
     // Finally compute h and t
     let (t_vec, h_vec) = lookup::compute_haystack([c_xor, c_xor2, c_sbox, c_rj2], c_lup);
     // there are as many frequencies as elements in the haystack
@@ -395,20 +392,13 @@ pub fn aes_prove<G: CurveGroup, LP: LinProof<G>, const R: usize>(
     // all needles are in the haystack
     assert!(f_vec.iter().all(|x| t_vec.contains(x)));
     // Send (Q,Y)
-    proof.Q = Q;
-    proof.Y = Y;
-    transcript
-        .append_serializable_element(b"Q", &[proof.Q])
-        .unwrap();
-    transcript
-        .append_serializable_element(b"Y", &[proof.Y])
-        .unwrap();
+    arthur.add_points(&[Q, Y]).unwrap();
 
     // Sumcheck for inner product
     // reduce <f . twist_vec ,q> = Y into:
     // 1.  <f, twist_vec . ipa_tensor> = F_fold
     // 2.  <q, ipa_tensor> = Q_fold
-    let c_ipa_twist = transcript.get_and_append_challenge(b"twist").unwrap();
+    let [c_ipa_twist] = arthur.challenge_scalars().unwrap();
     let c_ipa_twist_vec = linalg::powers(c_ipa_twist, f_vec.len());
     let f_twist_vec = {
         let tmp = linalg::add_constant(&f_vec, c_lup);
@@ -419,35 +409,27 @@ pub fn aes_prove<G: CurveGroup, LP: LinProof<G>, const R: usize>(
         linalg::inner_product(&f_twist_vec, &q_vec),
         c_ipa_twist_vec.iter().sum::<G::ScalarField>()
     );
-    let (cs_ipa, ipa_sumcheck_messages, ipa_sumcheck_openings, (f_twist_fold, ipa_q_fold)) =
-        sumcheck::sumcheck(transcript, rng, ck, &f_twist_vec, &q_vec);
-    proof.ipa_sumcheck = ipa_sumcheck_messages;
+    let (cs_ipa, ipa_sumcheck_openings, (f_twist_fold, ipa_q_fold)) =
+        sumcheck::sumcheck(arthur, ck, &f_twist_vec, &q_vec);
     // Commit to the final folded claims
     let (ipa_F_twist_fold, ipa_F_twist_fold_opening) =
-        pedersen::commit_hiding(rng, ck, &[f_twist_fold]);
-    let (ipa_Q_fold, ipa_Q_fold_opening) = pedersen::commit_hiding(rng, ck, &[ipa_q_fold]);
-    proof.ipa_Q_fold = ipa_Q_fold;
-    proof.ipa_F_twist_fold = ipa_F_twist_fold;
-    transcript
-        .append_serializable_element(b"ipa_Q_fold", &[proof.ipa_Q_fold])
-        .unwrap();
-    transcript
-        .append_serializable_element(b"ipa_F_twisted_fold", &[proof.ipa_F_twist_fold])
-        .unwrap();
+        pedersen::commit_hiding(arthur.rng(), ck, &[f_twist_fold]);
+    let (ipa_Q_fold, ipa_Q_fold_opening) = pedersen::commit_hiding(arthur.rng(), ck, &[ipa_q_fold]);
+    arthur.add_points(&[ipa_Q_fold, ipa_F_twist_fold]).unwrap();
 
     // Prove that the folded sumcheck claims are consistent
     let ipa_sumcheck_opening =
         sumcheck::reduce_with_challenges(&ipa_sumcheck_openings, &cs_ipa, G::ScalarField::from(0));
-    proof.mul_proof = sigma::mul_prove(
-        rng,
-        transcript,
+    sigma::mul_prove(
+        arthur,
         ck,
         f_twist_fold,
         ipa_Q_fold,
         ipa_F_twist_fold_opening,
         ipa_Q_fold_opening,
         ipa_sumcheck_opening,
-    );
+    )
+    .unwrap();
 
     // Sumcheck for linear evaluation
     let cs_ipa_vec = linalg::tensor(&cs_ipa);
@@ -455,7 +437,7 @@ pub fn aes_prove<G: CurveGroup, LP: LinProof<G>, const R: usize>(
     let (s_vec, s_const) =
         witness.trace_to_needles_map(&ipa_twist_cs_vec, [c_xor, c_xor2, c_sbox, c_rj2]);
     let z_vec = witness.full_witness();
-    let c_q = transcript.get_and_append_challenge(b"bc").unwrap();
+    let [c_q] = arthur.challenge_scalars().unwrap();
 
     let cs_ipa_c_q_vec = linalg::add_constant(&cs_ipa_vec, c_q);
     debug_assert_eq!(
@@ -465,7 +447,7 @@ pub fn aes_prove<G: CurveGroup, LP: LinProof<G>, const R: usize>(
     let z_twisted_fold =
         f_twist_fold - c_lup * ipa_twist_cs_vec.iter().sum::<G::ScalarField>() - s_const;
 
-    let c_lin_batch = transcript.get_and_append_challenge(b"sumcheck2").unwrap();
+    let [c_lin_batch] = arthur.challenge_scalars().unwrap();
     let c_lin_batch_vec = [c_lin_batch, c_lin_batch.square()];
     let mut lin_claims = [
         sumcheck::Claim::new(&m_vec, &h_vec),
@@ -488,10 +470,11 @@ pub fn aes_prove<G: CurveGroup, LP: LinProof<G>, const R: usize>(
             ip_m + (ip_q + c_q * ip_q2) * c_lin_batch_vec[0] + ip_z * c_lin_batch_vec[1]
         }
     );
+
+    // construct the folded instances to be sent
     // invoke batch sumcheck
-    let (cs_lin, lin_sumcheck, lin_openings) =
-        sumcheck::batch_sumcheck(transcript, rng, ck, &mut lin_claims, &c_lin_batch_vec);
-    proof.lin_sumcheck = lin_sumcheck;
+    let (cs_lin, lin_openings) =
+        sumcheck::batch_sumcheck(arthur, ck, &mut lin_claims, &c_lin_batch_vec);
     // construct the folded instances to be sent
     debug_assert_eq!(lin_claims[0].0.len(), 1);
     debug_assert_eq!(lin_claims[1].0.len(), 1);
@@ -501,8 +484,9 @@ pub fn aes_prove<G: CurveGroup, LP: LinProof<G>, const R: usize>(
     let (lin_z_fold, lin_s_fold) = (lin_claims[2].0[0], lin_claims[2].1[0]);
 
     // commit to the final claims
-    let (_lin_Z_fold, lin_Z_fold_opening) = pedersen::commit_hiding(rng, ck, &[lin_z_fold]);
-    let (lin_Q_fold, lin_Q_fold_opening) = pedersen::commit_hiding(rng, ck, &[lin_q_fold]);
+    let (_lin_Z_fold, lin_Z_fold_opening) =
+        pedersen::commit_hiding(arthur.rng(), ck, &[lin_z_fold]);
+    let (lin_Q_fold, lin_Q_fold_opening) = pedersen::commit_hiding(arthur.rng(), ck, &[lin_q_fold]);
     let lin_opening_claim = Y_opening
         + (ipa_Q_fold_opening + c_q * Y_opening) * c_lin_batch_vec[0]
         + ipa_F_twist_fold_opening * c_lin_batch_vec[1];
@@ -513,8 +497,7 @@ pub fn aes_prove<G: CurveGroup, LP: LinProof<G>, const R: usize>(
             - lin_ipa_cs_c_q_fold * lin_Q_fold_opening * c_lin_batch_vec[0]
             - lin_s_fold * lin_Z_fold_opening * c_lin_batch_vec[1]);
     let lin_M_fold = ck.G * lin_m_fold + ck.H * lin_M_fold_opening;
-    proof.lin_M_fold = lin_M_fold;
-    proof.lin_Q_fold = lin_Q_fold;
+    arthur.add_points(&[lin_M_fold, lin_Q_fold]).unwrap();
 
     debug_assert_eq!(
         lin_sumcheck_opening,
@@ -525,7 +508,7 @@ pub fn aes_prove<G: CurveGroup, LP: LinProof<G>, const R: usize>(
 
     let Z_opening = W_opening + witness.full_witness_opening();
     let lin_sumcheck_chals_vec = linalg::tensor(&cs_lin);
-    let c_batch_eval = transcript.get_and_append_challenge(b"final").unwrap();
+    let [c_batch_eval] = arthur.challenge_scalars().unwrap();
     let c_batch_eval2 = c_batch_eval.square();
 
     let c_batch_eval_vec = [c_batch_eval, c_batch_eval2];
@@ -545,22 +528,22 @@ pub fn aes_prove<G: CurveGroup, LP: LinProof<G>, const R: usize>(
 
     let e_opening = M_opening + c_batch_eval_vec[0] * Q_opening + c_batch_eval_vec[1] * Z_opening;
 
-    proof.lin_proof = LP::new(
-        rng,
-        transcript,
+    let a_vec = &lin_sumcheck_chals_vec[..e_vec.len()];
+    LP::new(
+        arthur,
         ck,
         &e_vec,
         &e_opening,
         &(lin_M_fold_opening
             + c_batch_eval_vec[0] * lin_Q_fold_opening
             + c_batch_eval_vec[1] * lin_Z_fold_opening),
-        &lin_sumcheck_chals_vec,
-    );
+        a_vec,
+    )
+    .unwrap();
 
-    // use ark_serialize::CanonicalSerialize;
-    // println!("Proof size, {}", proof.compressed_size());
+    println!("Proof size, {}", arthur.transcript().len());
 
-    proof
+    Ok(arthur.transcript())
 }
 
 #[test]
@@ -568,10 +551,9 @@ fn test_prove() {
     use ark_ff::Zero;
     type G = ark_curve25519::EdwardsProjective;
     type F = ark_curve25519::Fr;
-    use ark_serialize::CanonicalSerialize;
 
-    let mut transcript = IOPTranscript::<F>::new(b"aes");
-    transcript.append_message(b"init", b"init").unwrap();
+    let iop = ArkGroupIOPattern::new("test_prove").aes128_io();
+    let mut arthur = iop.to_arthur();
 
     let message = [
         0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69, 0x0C,
@@ -581,11 +563,10 @@ fn test_prove() {
         0xE7u8, 0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69,
         0x0C,
     ];
-    let ck = pedersen::setup::<G>(&mut rand::thread_rng(), 2084);
+    let ck = pedersen::setup::<G>(arthur.rng(), 2084);
 
-    let proof = crate::aes128_prove::<G>(&mut transcript, &ck, message, F::zero(), &key, F::zero());
-    println!("size: {}", proof.compressed_size());
-    println!("lin size: {}", proof.lin_proof.compressed_size());
+    let proof = crate::aes128_prove::<G>(&mut arthur, &ck, message, F::zero(), &key, F::zero());
+    println!("size: {}", proof.unwrap().len());
 }
 
 #[test]
