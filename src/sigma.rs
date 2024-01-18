@@ -4,11 +4,8 @@ use std::vec;
 use ark_ec::CurveGroup;
 use ark_serialize::CanonicalSerialize;
 use ark_std::{UniformRand, Zero};
-use nimue::plugins::arkworks::ArkGroupArthur;
-use nimue::plugins::arkworks::ArkGroupIOPattern;
-use nimue::plugins::arkworks::ArkGroupMerlin;
-use nimue::DuplexHash;
-use nimue::InvalidTag;
+use nimue::plugins::arkworks::{ArkGroupMerlin, ArkGroupIOPattern,ArkGroupArthur};
+use nimue::{DuplexHash, ProofResult, ProofError};
 
 use crate::linalg;
 use crate::pedersen::commit_hiding;
@@ -46,7 +43,7 @@ pub fn mul_prove<'a, G: CurveGroup>(
     rho_a: G::ScalarField,
     rho_b: G::ScalarField,
     rho_c: G::ScalarField,
-) -> Result<&'a [u8], nimue::InvalidTag> {
+) -> ProofResult<&'a [u8]> {
     // Produce the commitment
     let vec_k = (0..3)
         .map(|_| G::ScalarField::rand(arthur.rng()))
@@ -76,7 +73,7 @@ pub fn mul_verify<G: CurveGroup>(
     A: G,
     B: G,
     C: G,
-) -> Result<(), Option<InvalidTag>> {
+) -> ProofResult<()> {
     let commitment = merlin.next_points::<2>()?;
     let [c] = merlin.challenge_scalars()?;
     let response = merlin.next_scalars::<3>()?;
@@ -90,7 +87,7 @@ pub fn mul_verify<G: CurveGroup>(
     {
         Ok(())
     } else {
-        Err(None)
+        Err(ProofError::InvalidProof)
     }
 }
 
@@ -105,7 +102,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
         _X_opening: &G::ScalarField,
         _Y_opening: &G::ScalarField,
         a_vec: &[G::ScalarField],
-    ) -> Result<&'a [u8], InvalidTag> {
+    ) -> ProofResult<&'a [u8]> {
         let n = usize::min(a_vec.len(), x_vec.len());
 
         debug_assert!(n <= ck.vec_G.len());
@@ -144,7 +141,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
         a_vec: &[<G>::ScalarField],
         X: &G,
         Y: &G,
-    ) -> Result<(), Option<InvalidTag>> {
+    ) -> ProofResult<()> {
         let n = a_vec.len();
 
         let w = ark_std::cfg_iter!(a_vec)
@@ -158,7 +155,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
         if w_folded * f_folded == reduced_claim {
             Ok(())
         } else {
-            Err(None)
+            Err(ProofError::InvalidProof)
         }
     }
 }
@@ -171,7 +168,7 @@ impl<G: CurveGroup> LinProof<G> for SigmaProof<G> {
         X_opening: &G::ScalarField,
         Y_opening: &G::ScalarField,
         a_vec: &[G::ScalarField],
-    ) -> Result<&'a [u8], InvalidTag> {
+    ) -> ProofResult<&'a [u8]> {
         assert!(x_vec.len() <= a_vec.len());
         // Create the prover's blinders
         let mut vec_k = (0..a_vec.len())
@@ -203,7 +200,7 @@ impl<G: CurveGroup> LinProof<G> for SigmaProof<G> {
         a_vec: &[G::ScalarField],
         X: &G,
         Y: &G,
-    ) -> Result<(), Option<InvalidTag>> {
+    ) -> ProofResult<()> {
         let n = a_vec.len();
 
         let commitment = merlin.next_points::<2>()?;
@@ -220,7 +217,7 @@ impl<G: CurveGroup> LinProof<G> for SigmaProof<G> {
         if z_response == commitment[0] + X.mul(c) && za_response == commitment[1] + Y.mul(c) {
             Ok(())
         } else {
-            Err(None)
+            Err(ProofError::InvalidProof)
         }
     }
 }

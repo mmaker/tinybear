@@ -5,7 +5,7 @@ use ark_ec::CurveGroup;
 use ark_ff::Field;
 
 use nimue::plugins::arkworks::ArkGroupArthur;
-use nimue::InvalidTag;
+use nimue::ProofResult;
 
 use super::{aes, constrain, linalg, lookup, pedersen, sigma, sumcheck};
 use crate::aes::{AesCipherTrace, AesKeySchTrace};
@@ -351,7 +351,7 @@ pub fn aes_prove<'a, G: CurveGroup, LP: LinProof<G>, const R: usize>(
     arthur: &'a mut ArkGroupArthur<G>,
     ck: &CommitmentKey<G>,
     witness: &impl Witness<G::ScalarField>,
-) -> Result<&'a [u8], Option<InvalidTag>> {
+) -> ProofResult<&'a [u8]> {
     // Commit to the AES trace.
     // TIME: ~3-4ms [outdated]
     let w_vec = witness.witness_vec();
@@ -549,6 +549,9 @@ pub fn aes_prove<'a, G: CurveGroup, LP: LinProof<G>, const R: usize>(
 #[test]
 fn test_prove() {
     use ark_ff::Zero;
+    use crate::TinybearIO;
+    use nimue::plugins::arkworks::ArkGroupIOPattern;
+
     type G = ark_curve25519::EdwardsProjective;
     type F = ark_curve25519::Fr;
 

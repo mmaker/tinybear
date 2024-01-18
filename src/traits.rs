@@ -1,10 +1,11 @@
 use ark_ec::CurveGroup;
 use ark_ff::Field;
 use ark_serialize::CanonicalSerialize;
-use nimue::plugins::arkworks::prelude::ArkGroupIOPattern;
+use nimue::plugins::arkworks::ArkGroupIOPattern;
+
 use nimue::plugins::arkworks::ArkGroupArthur;
 use nimue::plugins::arkworks::ArkGroupMerlin;
-use nimue::{DuplexHash, InvalidTag};
+use nimue::{ProofResult, DuplexHash};
 
 use crate::pedersen::CommitmentKey;
 use crate::registry;
@@ -53,7 +54,7 @@ pub trait LinProof<G: CurveGroup>: CanonicalSerialize + Default {
         X_opening: &G::ScalarField,
         Y_opening: &G::ScalarField,
         a_vec: &[G::ScalarField],
-    ) -> Result<&'a [u8], InvalidTag>;
+    ) -> ProofResult<&'a [u8]>;
 
     /// Verify a proof that given commitment X, its opening x has: <x, a> = y
     fn verify(
@@ -62,7 +63,7 @@ pub trait LinProof<G: CurveGroup>: CanonicalSerialize + Default {
         a_vec: &[G::ScalarField],
         X: &G,
         Y: &G,
-    ) -> Result<(), Option<InvalidTag>>;
+    ) -> ProofResult<()>;
 }
 
 pub trait Instance<G: CurveGroup> {

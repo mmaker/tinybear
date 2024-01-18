@@ -3,7 +3,7 @@
 use ark_ec::CurveGroup;
 use ark_ff::Field;
 use nimue::plugins::arkworks::ArkGroupMerlin;
-use nimue::InvalidTag;
+use nimue::ProofResult;
 
 use crate::linalg::powers;
 use crate::pedersen::CommitmentKey;
@@ -14,7 +14,7 @@ pub fn aes_verify<'a, G, LP: LinProof<G>, const R: usize>(
     merlin: &'a mut ArkGroupMerlin<G>,
     ck: &CommitmentKey<G>,
     instance: &impl Instance<G>,
-) -> Result<(), InvalidTag>
+) -> ProofResult<()>
 where
     G: CurveGroup,
 {
