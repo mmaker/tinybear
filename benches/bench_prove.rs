@@ -11,8 +11,8 @@ fn bench_aes128_prove(c: &mut Criterion) {
     c.bench_function("aes128/prove", |b| {
         let message = [0u8; 16];
         let key = [0u8; 16];
-        let message_blinder = F::rand(rng);
-        let key_blinder = F::rand(rng);
+        let message_opening = F::rand(rng);
+        let key_opening = F::rand(rng);
         let ck = pedersen::setup::<G>(&mut rand::thread_rng(), 2048);
         let mut transcript = IOPTranscript::<F>::new(b"aes");
         transcript.append_message(b"init", b"init").unwrap();
@@ -22,9 +22,9 @@ fn bench_aes128_prove(c: &mut Criterion) {
                 &mut transcript,
                 &ck,
                 message,
-                message_blinder,
+                message_opening,
                 &key,
-                key_blinder,
+                key_opening,
             );
         });
     });
@@ -35,8 +35,8 @@ fn bench_aes256_prove(c: &mut Criterion) {
     c.bench_function("aes256/prove", |b| {
         let message = [0u8; 16];
         let key = [0u8; 32];
-        let message_blinder = F::rand(rng);
-        let key_blinder = F::rand(rng);
+        let message_opening = F::rand(rng);
+        let key_opening = F::rand(rng);
         let ck = pedersen::setup::<G>(&mut rand::thread_rng(), 2048);
         let mut transcript = IOPTranscript::<F>::new(b"aes");
         transcript.append_message(b"init", b"init").unwrap();
@@ -46,9 +46,9 @@ fn bench_aes256_prove(c: &mut Criterion) {
                 &mut transcript,
                 &ck,
                 message,
-                message_blinder,
+                message_opening,
                 &key,
-                key_blinder,
+                key_opening,
             );
         });
     });
@@ -72,8 +72,8 @@ fn bench_aes128_verify(c: &mut Criterion) {
     ];
     let ck = pedersen::setup::<G>(&mut rand::thread_rng(), 4000);
 
-    let (message_com, message_blinder) = prover::commit_aes128_message(rng, &ck, message);
-    let (round_keys_com, key_blinder) = prover::commit_aes128_keys(rng, &ck, &key);
+    let (message_com, message_opening) = prover::commit_aes128_message(rng, &ck, message);
+    let (round_keys_com, key_opening) = prover::commit_aes128_keys(rng, &ck, &key);
     let ctx = aes::aes128(message, key);
 
     c.bench_function("aes128/verify", |b| {
@@ -86,9 +86,9 @@ fn bench_aes128_verify(c: &mut Criterion) {
             &mut transcript_p,
             &ck,
             message,
-            message_blinder,
+            message_opening,
             &key,
-            key_blinder,
+            key_opening,
         );
         b.iter(|| {
             assert!(verifier::aes128_verify(
@@ -121,8 +121,8 @@ fn bench_aes256_verify(c: &mut Criterion) {
     ];
     let ck = pedersen::setup::<G>(&mut rand::thread_rng(), 4000);
 
-    let (message_com, message_blinder) = prover::commit_aes256_message(rng, &ck, message);
-    let (round_keys_com, key_blinder) = prover::commit_aes256_keys(rng, &ck, &key);
+    let (message_com, message_opening) = prover::commit_aes256_message(rng, &ck, message);
+    let (round_keys_com, key_opening) = prover::commit_aes256_keys(rng, &ck, &key);
     let ctx = aes::aes256(message, key);
 
     c.bench_function("aes256/verify", |b| {
@@ -135,9 +135,9 @@ fn bench_aes256_verify(c: &mut Criterion) {
             &mut transcript_p,
             &ck,
             message,
-            message_blinder,
+            message_opening,
             &key,
-            key_blinder,
+            key_opening,
         );
         b.iter(|| {
             assert!(verifier::aes256_verify(

@@ -17,12 +17,12 @@ pub fn aes128_prove<'a, G: CurveGroup>(
     arthur: &'a mut ArkGroupArthur<G>,
     ck: &CommitmentKey<G>,
     message: [u8; 16],
-    message_blinder: G::ScalarField,
+    message_opening: G::ScalarField,
     key: &[u8; 16],
-    key_blinder: G::ScalarField,
+    key_opening: G::ScalarField,
 ) -> ProofResult<&'a [u8]> {
     let witness =
-        AesCipherWitness::<G::ScalarField, 11, 4>::new(message, key, message_blinder, key_blinder);
+        AesCipherWitness::<G::ScalarField, 11, 4>::new(message, key, message_opening, key_opening);
     aes_prove::<G, SigmaProof<G>, 11>(arthur, ck, &witness)
 }
 
@@ -31,9 +31,9 @@ pub fn aes128ks_prove<'a, G: CurveGroup>(
     arthur: &'a mut ArkGroupArthur<G>,
     ck: &CommitmentKey<G>,
     key: [u8; 16],
-    key_blinder: G::ScalarField,
+    key_opening: G::ScalarField,
 ) -> ProofResult<&'a [u8]> {
-    let witness = AesKeySchWitness::<G::ScalarField, 11, 4>::new(&key, &key_blinder);
+    let witness = AesKeySchWitness::<G::ScalarField, 11, 4>::new(&key, &key_opening);
     aes_prove::<G, SigmaProof<G>, 11>(arthur, ck, &witness)
 }
 
@@ -65,12 +65,12 @@ pub fn aes256_prove<'a, G: CurveGroup>(
     arthur: &'a mut ArkGroupArthur<G>,
     ck: &CommitmentKey<G>,
     message: [u8; 16],
-    message_blinder: G::ScalarField,
+    message_opening: G::ScalarField,
     key: &[u8; 32],
-    key_blinder: G::ScalarField,
+    key_opening: G::ScalarField,
 ) -> ProofResult<&'a [u8]> {
     let witness =
-        AesCipherWitness::<G::ScalarField, 15, 8>::new(message, key, message_blinder, key_blinder);
+        AesCipherWitness::<G::ScalarField, 15, 8>::new(message, key, message_opening, key_opening);
     aes_prove::<G, SigmaProof<G>, 15>(arthur, ck, &witness)
 }
 
@@ -79,9 +79,9 @@ pub fn aes256ks_prove<'a, G: CurveGroup>(
     arthur: &'a mut ArkGroupArthur<G>,
     ck: &CommitmentKey<G>,
     key: [u8; 32],
-    key_blinder: G::ScalarField,
+    key_opening: G::ScalarField,
 ) -> ProofResult<&'a [u8]> {
-    let witness = AesKeySchWitness::<G::ScalarField, 15, 8>::new(&key, &key_blinder);
+    let witness = AesKeySchWitness::<G::ScalarField, 15, 8>::new(&key, &key_opening);
     aes_prove::<G, SigmaProof<G>, 15>(arthur, ck, &witness)
 }
 
@@ -106,11 +106,11 @@ pub fn commit_message<G: CurveGroup, const R: usize>(
 ) -> (G, G::ScalarField) {
     let m_offset = registry::aes_offsets::<R>().message;
     let m = m.iter().flat_map(|x| [x & 0xf, x >> 4]).collect::<Vec<_>>();
-    let message_blinder = G::ScalarField::rand(csrng);
+    let message_opening = G::ScalarField::rand(csrng);
     let message_commitment =
-        crate::u8msm::u8msm::<G>(&ck.vec_G[m_offset * 2..], &m) + ck.H * message_blinder;
+        crate::u8msm::u8msm::<G>(&ck.vec_G[m_offset * 2..], &m) + ck.H * message_opening;
 
-    (message_commitment, message_blinder)
+    (message_commitment, message_opening)
 }
 
 pub fn commit_aes128_message<G: CurveGroup>(
@@ -156,10 +156,10 @@ fn commit_round_keys<G: CurveGroup, const R: usize>(
         .flat_map(|x| [x & 0xf, x >> 4])
         .collect::<Vec<_>>();
 
-    let key_blinder = G::ScalarField::rand(csrng);
+    let key_opening = G::ScalarField::rand(csrng);
     let round_keys_offset = registry::aes_offsets::<R>().round_keys * 2;
     let round_keys_commitment =
-        u8msm::u8msm::<G>(&ck.vec_G[round_keys_offset..], &kk) + ck.H * key_blinder;
+        u8msm::u8msm::<G>(&ck.vec_G[round_keys_offset..], &kk) + ck.H * key_opening;
 
-    (round_keys_commitment, key_blinder)
+    (round_keys_commitment, key_opening)
 }

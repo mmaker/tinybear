@@ -17,17 +17,17 @@ fn test_aes128() {
     let key = *b"\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C";
     let ctx = aes::aes128(message, key);
 
-    let (message_commitment, message_blinder) =
+    let (message_commitment, message_opening) =
         crate::commit_aes128_message(arthur.rng(), &ck, message);
-    let (round_keys_commitment, round_keys_blinder) =
+    let (round_keys_commitment, round_keys_opening) =
         crate::commit_aes128_key(arthur.rng(), &ck, &key);
     let proof_result = crate::aes128_prove(
         &mut arthur,
         &ck,
         message,
-        message_blinder,
+        message_opening,
         &key,
-        round_keys_blinder,
+        round_keys_opening,
     );
     assert!(proof_result.is_ok());
     let proof = &proof_result.unwrap().to_vec();
@@ -80,17 +80,17 @@ fn test_aes256() {
     let key = *b"\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C";
     let ctx = aes::aes256(message, key);
 
-    let (message_commitment, message_blinder) =
+    let (message_commitment, message_opening) =
         crate::commit_aes256_message(arthur.rng(), &ck, message);
-    let (round_keys_commitment, round_keys_blinder) =
+    let (round_keys_commitment, round_keys_opening) =
         crate::commit_aes256_keys(arthur.rng(), &ck, &key);
     let proof_result = crate::aes256_prove(
         &mut arthur,
         &ck,
         message,
-        message_blinder,
+        message_opening,
         &key,
-        round_keys_blinder,
+        round_keys_opening,
     );
     assert!(proof_result.is_ok());
     let mut merlin = iop.to_merlin(proof_result.unwrap());
