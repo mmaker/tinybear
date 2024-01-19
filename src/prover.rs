@@ -541,7 +541,7 @@ pub fn aes_prove<'a, G: CurveGroup, LP: LinProof<G>, const R: usize>(
     )
     .unwrap();
 
-    println!("Proof size, {}", arthur.transcript().len());
+    // println!("Proof size, {}", arthur.transcript().len());
 
     Ok(arthur.transcript())
 }
@@ -555,7 +555,7 @@ fn test_prove() {
     type G = ark_curve25519::EdwardsProjective;
     type F = ark_curve25519::Fr;
 
-    let iop = ArkGroupIOPattern::new("test_prove").aes128_io();
+    let iop = ArkGroupIOPattern::new("test_prove").add_aes128_proof();
     let mut arthur = iop.to_arthur();
 
     let message = [

@@ -20,7 +20,7 @@ pub struct SigmaProof<G: CurveGroup> {
 }
 
 impl<G: CurveGroup, H: DuplexHash<u8>> LinProofIO for ArkGroupIOPattern<G, H> {
-    fn linproof_io(self, len: usize) -> Self {
+    fn add_lin_proof(self, len: usize) -> Self {
         self.add_points(2, "commitment")
             .challenge_scalars(1, "challenge")
             .add_scalars(len + 2, "response")
@@ -28,7 +28,7 @@ impl<G: CurveGroup, H: DuplexHash<u8>> LinProofIO for ArkGroupIOPattern<G, H> {
 }
 
 impl<G: CurveGroup, H: DuplexHash<u8>> MulProofIO for ArkGroupIOPattern<G, H> {
-    fn mulproof_io(self) -> Self {
+    fn add_mul_proof(self) -> Self {
         self.add_points(2, "commitment")
             .challenge_scalars(1, "challenge")
             .add_scalars(3, "response")
@@ -239,7 +239,7 @@ fn test_mul() {
     let B = ck.G * b + ck.H * rho_b;
     let C = ck.G * c + ck.H * rho_c;
 
-    let iop = ArkGroupIOPattern::<G>::new("test").mulproof_io();
+    let iop = ArkGroupIOPattern::<G>::new("test").add_mul_proof();
     let mut arthur = iop.to_arthur();
     let proof_result = mul_prove(&mut arthur, &ck, a, B, rho_a, rho_b, rho_c);
     assert!(proof_result.is_ok());
@@ -259,7 +259,7 @@ fn test_lineval_correctness() {
 
     // Basic setup
     let len = 1 << 8;
-    let iop = ArkGroupIOPattern::<G>::new("lineval test").linproof_io(len);
+    let iop = ArkGroupIOPattern::<G>::new("lineval test").add_lin_proof(len);
     let mut arthur = iop.to_arthur();
 
     let ck = pedersen::setup::<G>(rng, 2084);

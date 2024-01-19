@@ -9,38 +9,37 @@ use nimue::{ProofResult, DuplexHash};
 
 use crate::pedersen::CommitmentKey;
 use crate::registry;
-use crate::sigma::SigmaProof;
 
 pub trait TinybearIO: SumcheckIO + MulProofIO + LinProofIO + Sized {
-    fn tinybear_statement(self) -> Self;
-    fn tinybear_io(self, needles_len: usize, witness_len: usize) -> Self;
+    fn add_aes_statement(self) -> Self;
+    fn add_tinybear_proof(self, needles_len: usize, witness_len: usize) -> Self;
 
-    fn aes128_io(self) -> Self {
+    fn add_aes128_proof(self) -> Self {
         let reg = registry::AES128REG;
-        self.tinybear_io(reg.needles_len, reg.witness_len)
+        self.add_tinybear_proof(reg.needles_len, reg.witness_len)
     }
 
-    fn aes256_io(self) -> Self {
+    fn add_aes256_proof(self) -> Self {
         let reg = registry::AES256REG;
-        self.tinybear_io(reg.needles_len, reg.witness_len)
+        self.add_tinybear_proof(reg.needles_len, reg.witness_len)
     }
 
-    fn aes128ks_io(self) -> Self {
+    fn add_aes128keysch_proof(self) -> Self {
         let reg = registry::AES128KSREG;
-        self.tinybear_io(reg.needles_len, reg.witness_len)
+        self.add_tinybear_proof(reg.needles_len, reg.witness_len)
     }
 }
 
 pub trait SumcheckIO {
-    fn sumcheck_io(self, len: usize) -> Self;
+    fn add_sumcheck(self, len: usize) -> Self;
 }
 
 pub trait LinProofIO {
-    fn linproof_io(self, len: usize) -> Self;
+    fn add_lin_proof(self, len: usize) -> Self;
 }
 
 pub trait MulProofIO {
-    fn mulproof_io(self) -> Self;
+    fn add_mul_proof(self) -> Self;
 }
 
 pub trait LinProof<G: CurveGroup>: CanonicalSerialize + Default {
@@ -95,52 +94,27 @@ pub trait Witness<F: Field> {
 }
 
 impl<G: CurveGroup, H: DuplexHash<u8>> TinybearIO for ArkGroupIOPattern<G, H, u8> {
-    fn tinybear_statement(self) -> Self {
-        todo!()
+    fn add_aes_statement(self) -> Self {
+        self.add_points(1, "message commitment")
+            .add_points(1, "round keys commitment")
+            .add_bytes(16, "ciphertext")
     }
 
-    fn tinybear_io(self, needles_len: usize, witness_len: usize) -> Self {
-        self.add_points(1, "witness")
+    fn add_tinybear_proof(self, needles_len: usize, witness_len: usize) -> Self {
+        self.add_points(1, "witness (W)")
             .challenge_scalars(1, "batch lookup (c_lup_batch)")
             .add_points(1, "lookup frequences (M)")
             .challenge_scalars(1, "lookup (c_lup)")
             .add_points(2, "inverse needles and claimed IP (Q, Y)")
             .challenge_scalars(1, "IPA twist (c_ipa_twist)")
-            .sumcheck_io(needles_len)
-            .add_points(2, "ipa_Q_fold, ipa_F_twist_fold")
-            .mulproof_io()
-            .challenge_scalars(1, "c_q")
-            .challenge_scalars(1, "c_lin_batch")
-            .sumcheck_io(witness_len * 2)
+            .add_sumcheck(needles_len)
+            .add_points(2, "IPA reduced claims (ipa_Q_fold, ipa_F_twist_fold)")
+            .add_mul_proof()
+            .challenge_scalars(1, "Lin challenge (c_q)")
+            .challenge_scalars(1, "Lin batch challenge (c_lin_batch)")
+            .add_sumcheck(witness_len * 2)
             .add_points(2, "lin_M_fold, lin_Q_fold")
             .challenge_scalars(1, "c_batch_eval")
-            .linproof_io(witness_len * 2)
+            .add_lin_proof(witness_len * 2)
     }
-}
-#[derive(Default, CanonicalSerialize)]
-pub struct TinybearProof<G, LP>
-where
-    G: CurveGroup,
-    LP: LinProof<G>,
-{
-    // prover sends w
-    pub W: G,
-    // sends commitments
-    pub M: G, // com(m)
-    pub Q: G, // com(q)
-    // claimed evaluation of <m, h> = <q, 1>
-    pub Y: G, // com(y)
-
-    // runs sumcheck and sends commitments to folded elements
-    pub ipa_sumcheck: Vec<[G; 2]>,
-    pub ipa_Q_fold: G,
-    pub ipa_F_twist_fold: G,
-    pub mul_proof: SigmaProof<G>,
-
-    // runs sumcheck and sends commitments to folded secret elements
-    pub lin_sumcheck: Vec<[G; 2]>,
-    pub lin_M_fold: G,
-    pub lin_Q_fold: G,
-    // lin_Z_fold computed from the reduced claim
-    pub lin_proof: LP,
 }

@@ -10,7 +10,7 @@ use crate::traits::SumcheckIO;
 pub(crate) struct Claim<A: AdditiveGroup>(pub Vec<A>, pub Vec<A>);
 
 impl<G: CurveGroup, H: DuplexHash<u8>> SumcheckIO for ArkGroupIOPattern<G, H> {
-    fn sumcheck_io(mut self, len: usize) -> Self {
+    fn add_sumcheck(mut self, len: usize) -> Self {
         for _ in 0..ark_std::log2(len) {
             self = self
                 .add_points(2, "round-message")
@@ -205,7 +205,7 @@ fn test_sumcheck() {
     let ip = linalg::inner_product(&v, &w);
     let (ip_com, mut ip_opening) = pedersen::commit_hiding(&mut rng, &ck, &[ip]);
 
-    let iop = ArkGroupIOPattern::new("sumcheck").sumcheck_io(16);
+    let iop = ArkGroupIOPattern::new("sumcheck").add_sumcheck(16);
     let mut arthur = iop.to_arthur();
     // Prover side of sumcheck
     let (expected_chals, openings, final_foldings) = sumcheck(&mut arthur, &ck, &v[..], &w[..]);

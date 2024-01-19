@@ -12,8 +12,6 @@ pub struct CommitmentKey<G: CurveGroup> {
     pub G: G::Affine,
 }
 
-// use ark_ec::AffineRepr;
-
 pub fn setup<G: CurveGroup>(csrng: &mut (impl RngCore + CryptoRng), d: usize) -> CommitmentKey<G> {
     CommitmentKey {
         // vec_G: (0..d).map(|_| G::Affine::generator()).collect(),

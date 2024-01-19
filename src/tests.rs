@@ -7,7 +7,7 @@ type G = ark_curve25519::EdwardsProjective;
 
 #[test]
 fn test_aes128() {
-    let iop = ArkGroupIOPattern::<G>::new("tinybear test aes128").aes128_io();
+    let iop = ArkGroupIOPattern::<G>::new("tinybear test aes128").add_aes128_proof();
 
     let mut arthur = iop.to_arthur();
     let ck = pedersen::setup::<G>(arthur.rng(), crate::registry::AES128REG.witness_len * 2);
@@ -46,7 +46,7 @@ fn test_aes128() {
 #[ignore = "rearrange keyschedule registry"]
 #[test]
 fn test_aes128ks() {
-    let iop = ArkGroupIOPattern::<G>::new("tinybear test aes128").aes128ks_io();
+    let iop = ArkGroupIOPattern::<G>::new("tinybear test aes128").add_aes128keysch_proof();
 
     let mut arthur = iop.to_arthur();
 
@@ -71,7 +71,7 @@ fn test_aes128ks() {
 
 #[test]
 fn test_aes256() {
-    let iop = ArkGroupIOPattern::<G>::new("tinybear test aes256").aes256_io();
+    let iop = ArkGroupIOPattern::<G>::new("tinybear test aes256").add_aes256_proof();
     let mut arthur = iop.to_arthur();
 
     let ck = pedersen::setup::<G>(arthur.rng(), crate::registry::AES256REG.witness_len * 2);
