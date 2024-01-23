@@ -2,7 +2,7 @@
 
 use ark_ec::CurveGroup;
 use ark_ff::Field;
-use nimue::plugins::arkworks::ArkGroupMerlin;
+use nimue::plugins::arkworks::*;
 use nimue::ProofResult;
 
 use crate::linalg::powers;
@@ -11,7 +11,7 @@ use crate::traits::{Instance, LinProof};
 use crate::{constrain, linalg, lookup, registry, sigma, sumcheck};
 
 pub fn aes_verify<'a, G, LP: LinProof<G>, const R: usize>(
-    merlin: &'a mut ArkGroupMerlin<G>,
+    merlin: &'a mut Merlin,
     ck: &CommitmentKey<G>,
     instance: &impl Instance<G>,
 ) -> ProofResult<()>
@@ -21,29 +21,26 @@ where
     let [W] = merlin.next_points().unwrap();
     let [c_lup_batch] = merlin.challenge_scalars().unwrap();
     let [_, c_xor, c_xor2, c_sbox, c_rj2] = linalg::powers(c_lup_batch, 5).try_into().unwrap();
-    let [M] = merlin.next_points().unwrap();
+    let [M]: [G; 1] = merlin.next_points().unwrap();
     let [c_lup] = merlin.challenge_scalars().unwrap();
-    let [Q, Y] = merlin.next_points().unwrap();
+    let [Q, Y]: [G; 2] = merlin.next_points().unwrap();
 
     // Compute h and t
     let needles_len = instance.needles_len();
     let (_t_vec, h_vec) = lookup::compute_haystack([c_xor, c_xor2, c_sbox, c_rj2], c_lup);
 
     // Sumcheck
-    let [c_ipa_twist] = merlin.challenge_scalars().unwrap();
+    let [c_ipa_twist]: [G::ScalarField; 1] = merlin.challenge_scalars().unwrap();
     let ipa_sumcheck_claim = (c_ipa_twist.pow([needles_len as u64]) - G::ScalarField::from(1))
         * (c_ipa_twist - G::ScalarField::from(1)).inverse().unwrap();
     let ipa_sumcheck_claim = ck.G * ipa_sumcheck_claim;
 
     let (ipa_cs, ipa_claim_fold) = sumcheck::reduce::<G>(merlin, needles_len, ipa_sumcheck_claim);
-    let [ipa_Q_fold, ipa_F_twist_fold] = merlin.next_points().unwrap();
+    let [ipa_Q_fold, ipa_F_twist_fold]: [G; 2] = merlin.next_points().unwrap();
 
     sigma::mul_verify(merlin, ck, ipa_F_twist_fold, ipa_Q_fold, ipa_claim_fold).unwrap();
 
     let ipa_cs_vec = linalg::tensor(&ipa_cs);
-    // XXXXXXX very weird potential security bug.
-    // using the line below leads to failed proof verification.
-    // let twist_vec = powers(twist, helper::NEEDLES_LEN+1);
     let twist_vec = powers(c_ipa_twist, needles_len);
     let ipa_twist_cs_vec = linalg::hadamard(&ipa_cs_vec, &twist_vec);
     let (s_vec, s_const) =
@@ -55,7 +52,7 @@ where
 
     let off = s_const + c_lup * ipa_twist_cs_vec.iter().sum::<G::ScalarField>();
 
-    let [c_lin_batch] = merlin.challenge_scalars().unwrap();
+    let [c_lin_batch]: [G::ScalarField; 1] = merlin.challenge_scalars().unwrap();
     let c_lin_batch2 = c_lin_batch.square();
 
     let lin_claim =
@@ -69,7 +66,7 @@ where
     let lin_ipa_cs_c_q_fold = linalg::inner_product(&lin_sumcheck_chals_vec, &ipa_cs_c_q_vec);
     let lin_s_fold = linalg::inner_product(&lin_sumcheck_chals_vec, &s_vec);
     let Z = instance.full_witness_com(&W);
-    let [lin_M_fold, lin_Q_fold] = merlin.next_points().unwrap();
+    let [lin_M_fold, lin_Q_fold]: [G; 2] = merlin.next_points().unwrap();
     let lin_Z_fold =
         (reduced_claim - lin_M_fold * lin_h_fold - lin_Q_fold * lin_ipa_cs_c_q_fold * c_lin_batch)
             * (lin_s_fold * c_lin_batch2).inverse().unwrap();
@@ -81,13 +78,12 @@ where
             + lin_Z_fold * lin_s_fold * c_lin_batch2
     );
 
-    let [c_batch_eval] = merlin.challenge_scalars().unwrap();
+    let [c_batch_eval]: [G::ScalarField; 1] = merlin.challenge_scalars().unwrap();
     let c_batch_eval2 = c_batch_eval.square();
 
     let E = M + Q * c_batch_eval + Z * c_batch_eval2;
     let P = lin_M_fold + lin_Q_fold * c_batch_eval + lin_Z_fold * c_batch_eval2;
-    LP::verify(merlin, ck, lin_sumcheck_chals_vec, &E, &P).unwrap();
-    Ok(())
+    LP::verify(merlin, ck, lin_sumcheck_chals_vec, &E, &P)
 }
 
 pub struct AesCipherInstance<G: CurveGroup, const R: usize, const N: usize> {

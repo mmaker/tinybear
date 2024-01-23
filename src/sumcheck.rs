@@ -1,8 +1,8 @@
 use ark_ec::CurveGroup;
 use ark_ff::AdditiveGroup;
 use ark_ff::{Field, PrimeField};
-use nimue::plugins::arkworks::{ArkGroupArthur, ArkGroupIOPattern, ArkGroupMerlin};
-use nimue::DuplexHash;
+use nimue::plugins::arkworks::*;
+use nimue::{Arthur, Merlin, DuplexHash};
 
 use crate::pedersen::{self, CommitmentKey};
 use crate::traits::SumcheckIO;
@@ -85,7 +85,7 @@ pub fn reduce_with_challenges<G: AdditiveGroup>(
     claim
 }
 
-pub fn reduce<G>(merlin: &mut ArkGroupMerlin<G>, n: usize, claim: G) -> (Vec<G::Scalar>, G)
+pub fn reduce<G>(merlin: &mut Merlin, n: usize, claim: G) -> (Vec<G::Scalar>, G)
 where
     G: CurveGroup,
     G::Scalar: PrimeField,
@@ -125,7 +125,7 @@ impl<F: Field> Claim<F> {
 /// Prove the inner product <v, w> using a sumcheck
 #[allow(non_snake_case)]
 pub fn batch_sumcheck<G: CurveGroup, const N: usize>(
-    arthur: &mut ArkGroupArthur<G>,
+    arthur: &mut Arthur,
     ck: &CommitmentKey<G>,
     claims: &mut [Claim<G::ScalarField>; N],
     challenges: &[G::Scalar],
@@ -161,7 +161,7 @@ pub fn batch_sumcheck<G: CurveGroup, const N: usize>(
 /// Prove the inner product <v, w> using a sumcheck
 #[allow(non_snake_case)]
 pub fn sumcheck<G: CurveGroup>(
-    arthur: &mut ArkGroupArthur<G>,
+    arthur: &mut Arthur,
     ck: &CommitmentKey<G>,
     v: &[G::ScalarField],
     w: &[G::ScalarField],
@@ -194,18 +194,19 @@ pub fn sumcheck<G: CurveGroup>(
 
 #[test]
 fn test_sumcheck() {
+    type G = ark_curve25519::EdwardsProjective;
     type F = ark_curve25519::Fr;
     use crate::linalg;
     use ark_std::UniformRand;
 
     let mut rng = rand::rngs::OsRng;
-    let ck = pedersen::setup::<ark_curve25519::EdwardsProjective>(&mut rng, 16);
+    let ck = pedersen::setup::<G>(&mut rng, 16);
     let v = (0..16).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
     let w = (0..16).map(|_| F::rand(&mut rng)).collect::<Vec<_>>();
     let ip = linalg::inner_product(&v, &w);
     let (ip_com, mut ip_opening) = pedersen::commit_hiding(&mut rng, &ck, &[ip]);
 
-    let iop = ArkGroupIOPattern::new("sumcheck").add_sumcheck(16);
+    let iop = ArkGroupIOPattern::<G>::new("sumcheck").add_sumcheck(16);
     let mut arthur = iop.to_arthur();
     // Prover side of sumcheck
     let (expected_chals, openings, final_foldings) = sumcheck(&mut arthur, &ck, &v[..], &w[..]);

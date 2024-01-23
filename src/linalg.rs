@@ -18,11 +18,11 @@ pub(crate) fn powers<F: Field>(element: F, len: usize) -> Vec<F> {
     powers
 }
 
-pub(crate) fn hadamard<F: core::ops::Mul<Output = F> + Copy>(lhs: &[F], rhs: &[F]) -> Vec<F> {
+pub(crate) fn hadamard<F: ops::Mul<Output = F> + Copy>(lhs: &[F], rhs: &[F]) -> Vec<F> {
     lhs.iter().zip(rhs).map(|(&x, &y)| x * y).collect()
 }
 
-pub(crate) fn add_constant<F: core::ops::Add<Output = F> + Copy>(v: &[F], c: F) -> Vec<F> {
+pub(crate) fn add_constant<F: ops::Add<Output = F> + Copy>(v: &[F], c: F) -> Vec<F> {
     v.iter().map(|&x| x + c).collect()
 }
 

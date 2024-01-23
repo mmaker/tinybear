@@ -4,7 +4,7 @@
 use ark_ec::CurveGroup;
 use ark_ff::Field;
 
-use nimue::plugins::arkworks::ArkGroupArthur;
+use nimue::plugins::arkworks::*;
 use nimue::ProofResult;
 
 use super::{aes, constrain, linalg, lookup, pedersen, sigma, sumcheck};
@@ -348,7 +348,7 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesCipherWitness<F
 }
 
 pub fn aes_prove<'a, G: CurveGroup, LP: LinProof<G>, const R: usize>(
-    arthur: &'a mut ArkGroupArthur<G>,
+    arthur: &'a mut Arthur,
     ck: &CommitmentKey<G>,
     witness: &impl Witness<G::ScalarField>,
 ) -> ProofResult<&'a [u8]> {
@@ -447,7 +447,7 @@ pub fn aes_prove<'a, G: CurveGroup, LP: LinProof<G>, const R: usize>(
     let z_twisted_fold =
         f_twist_fold - c_lup * ipa_twist_cs_vec.iter().sum::<G::ScalarField>() - s_const;
 
-    let [c_lin_batch] = arthur.challenge_scalars().unwrap();
+    let [c_lin_batch]: [G::ScalarField; 1] = arthur.challenge_scalars().unwrap();
     let c_lin_batch_vec = [c_lin_batch, c_lin_batch.square()];
     let mut lin_claims = [
         sumcheck::Claim::new(&m_vec, &h_vec),
@@ -508,7 +508,7 @@ pub fn aes_prove<'a, G: CurveGroup, LP: LinProof<G>, const R: usize>(
 
     let Z_opening = W_opening + witness.full_witness_opening();
     let lin_sumcheck_chals_vec = linalg::tensor(&cs_lin);
-    let [c_batch_eval] = arthur.challenge_scalars().unwrap();
+    let [c_batch_eval]: [G::ScalarField; 1] = arthur.challenge_scalars().unwrap();
     let c_batch_eval2 = c_batch_eval.square();
 
     let c_batch_eval_vec = [c_batch_eval, c_batch_eval2];
@@ -555,7 +555,7 @@ fn test_prove() {
     type G = ark_curve25519::EdwardsProjective;
     type F = ark_curve25519::Fr;
 
-    let iop = ArkGroupIOPattern::new("test_prove").add_aes128_proof();
+    let iop = ArkGroupIOPattern::<G>::new("test_prove").add_aes128_proof();
     let mut arthur = iop.to_arthur();
 
     let message = [
@@ -586,10 +586,11 @@ fn test_trace_to_needles_map() {
     ];
     let key = [
         0xE7u8, 0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69,
+        0x0C,0xE7u8, 0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69,
         0x0C,
     ];
     // actual length needed is: ceil(log(OFFSETS.cipher_len * 2))
-    let challenges = (0..11).map(|_| F::rand(rng)).collect::<Vec<_>>();
+    let challenges = (0..15).map(|_| F::rand(rng)).collect::<Vec<_>>();
     let vector = linalg::tensor(&challenges);
 
     let c_xor = F::rand(rng);
@@ -597,11 +598,11 @@ fn test_trace_to_needles_map() {
     let c_sbox = F::rand(rng);
     let c_rj2 = F::rand(rng);
 
-    let witness = AesCipherWitness::<F, 11, 4>::new(message, &key, F::zero(), F::zero());
+    let witness = AesCipherWitness::<F, 15, 8>::new(message, &key, F::zero(), F::zero());
     let (needles, _, _) = witness.compute_needles_and_frequencies([c_xor, c_xor2, c_sbox, c_rj2]);
     let got = linalg::inner_product(&needles, &vector);
 
-    let round_keys = aes::aes128_keyschedule(&key);
+    let round_keys = aes::aes256_keyschedule(&key);
 
     // these elements will be commited to a separate vector.
     let message = witness.message.iter().flat_map(|x| [x & 0xf, x >> 4]);

@@ -3,8 +3,7 @@ use ark_ff::Field;
 use ark_serialize::CanonicalSerialize;
 use nimue::plugins::arkworks::ArkGroupIOPattern;
 
-use nimue::plugins::arkworks::ArkGroupArthur;
-use nimue::plugins::arkworks::ArkGroupMerlin;
+use nimue::{Arthur, Merlin};
 use nimue::{ProofResult, DuplexHash};
 
 use crate::pedersen::CommitmentKey;
@@ -47,7 +46,7 @@ pub trait LinProof<G: CurveGroup>: CanonicalSerialize + Default {
     /// phi is blinder of vec_x
     /// psi is blinder of y
     fn new<'a>(
-        arthur: &'a mut ArkGroupArthur<G>,
+        arthur: &'a mut Arthur,
         ck: &CommitmentKey<G>,
         x_vec: &[G::ScalarField],
         X_opening: &G::ScalarField,
@@ -57,7 +56,7 @@ pub trait LinProof<G: CurveGroup>: CanonicalSerialize + Default {
 
     /// Verify a proof that given commitment X, its opening x has: <x, a> = y
     fn verify(
-        merlin: &mut ArkGroupMerlin<G>,
+        merlin: &mut Merlin,
         ck: &CommitmentKey<G>,
         a_vec: &[G::ScalarField],
         X: &G,

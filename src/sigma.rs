@@ -4,7 +4,7 @@ use std::vec;
 use ark_ec::CurveGroup;
 use ark_serialize::CanonicalSerialize;
 use ark_std::{UniformRand, Zero};
-use nimue::plugins::arkworks::{ArkGroupMerlin, ArkGroupIOPattern,ArkGroupArthur};
+use nimue::plugins::arkworks::*;
 use nimue::{DuplexHash, ProofResult, ProofError};
 
 use crate::linalg;
@@ -36,7 +36,7 @@ impl<G: CurveGroup, H: DuplexHash<u8>> MulProofIO for ArkGroupIOPattern<G, H> {
 }
 
 pub fn mul_prove<'a, G: CurveGroup>(
-    arthur: &'a mut ArkGroupArthur<G>,
+    arthur: &'a mut Arthur,
     ck: &CommitmentKey<G>,
     a: G::ScalarField,
     B: G,
@@ -55,7 +55,7 @@ pub fn mul_prove<'a, G: CurveGroup>(
     arthur.add_points(&K)?;
 
     // Get challenges from verifier
-    let [c] = arthur.challenge_scalars()?;
+    let [c]: [G::ScalarField; 1] = arthur.challenge_scalars()?;
     // Compute prover's response
     let vec_z = vec![
         vec_k[0] + c * a,
@@ -68,15 +68,15 @@ pub fn mul_prove<'a, G: CurveGroup>(
 }
 
 pub fn mul_verify<G: CurveGroup>(
-    merlin: &mut ArkGroupMerlin<G>,
+    merlin: &mut Merlin,
     ck: &CommitmentKey<G>,
     A: G,
     B: G,
     C: G,
 ) -> ProofResult<()> {
-    let commitment = merlin.next_points::<2>()?;
-    let [c] = merlin.challenge_scalars()?;
-    let response = merlin.next_scalars::<3>()?;
+    let commitment: [G; 2] = merlin.next_points::<2>()?;
+    let [c]: [G::ScalarField; 1] = merlin.challenge_scalars()?;
+    let response: [G::ScalarField; 3] = merlin.next_scalars::<3>()?;
 
     if commitment[0] == G::msm_unchecked(&[(-A).into(), ck.G, ck.H], &[c, response[0], response[1]])
         && commitment[1]
@@ -96,7 +96,7 @@ pub struct CompressedSigma<G: CurveGroup>(Vec<[G; 2]>, G::ScalarField);
 
 impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
     fn new<'a>(
-        arthur: &'a mut ArkGroupArthur<G>,
+        arthur: &'a mut Arthur,
         ck: &CommitmentKey<G>,
         x_vec: &[G::ScalarField],
         _X_opening: &G::ScalarField,
@@ -136,7 +136,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
     }
 
     fn verify(
-        merlin: &mut ArkGroupMerlin<G>,
+        merlin: &mut Merlin,
         ck: &CommitmentKey<G>,
         a_vec: &[<G>::ScalarField],
         X: &G,
@@ -148,7 +148,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
             .zip(ck.vec_G[..n].iter())
             .map(|(a, G_i)| (ck.G * a + G_i).into_affine())
             .collect::<Vec<_>>();
-        let [f_folded] = merlin.next_scalars().unwrap();
+        let [f_folded]: [G::ScalarField; 1] = merlin.challenge_scalars().unwrap();
         let (challenges, reduced_claim) = crate::sumcheck::reduce(merlin, n, *X + Y);
         let challenges_vec = crate::linalg::tensor(&challenges);
         let w_folded = G::msm_unchecked(&w, &challenges_vec);
@@ -162,7 +162,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
 
 impl<G: CurveGroup> LinProof<G> for SigmaProof<G> {
     fn new<'a>(
-        arthur: &'a mut ArkGroupArthur<G>,
+        arthur: &'a mut Arthur,
         ck: &CommitmentKey<G>,
         x_vec: &[G::ScalarField],
         X_opening: &G::ScalarField,
@@ -183,7 +183,7 @@ impl<G: CurveGroup> LinProof<G> for SigmaProof<G> {
         arthur.add_points(&[K_1, K_2])?;
 
         // Get challenges from verifier
-        let [c] = arthur.challenge_scalars()?;
+        let [c]: [G::ScalarField; 1] = arthur.challenge_scalars()?;
         // Compute prover's response
         let witness = x_vec.iter().chain(Some(X_opening)).chain(Some(Y_opening));
 
@@ -195,7 +195,7 @@ impl<G: CurveGroup> LinProof<G> for SigmaProof<G> {
     }
 
     fn verify(
-        merlin: &mut ArkGroupMerlin<G>,
+        merlin: &mut Merlin,
         ck: &CommitmentKey<G>,
         a_vec: &[G::ScalarField],
         X: &G,
@@ -203,9 +203,9 @@ impl<G: CurveGroup> LinProof<G> for SigmaProof<G> {
     ) -> ProofResult<()> {
         let n = a_vec.len();
 
-        let commitment = merlin.next_points::<2>()?;
+        let commitment: [G; 2]  = merlin.next_points::<2>()?;
         // Get challenges from verifier
-        let [c] = merlin.challenge_scalars()?;
+        let [c]: [G::ScalarField; 1] = merlin.challenge_scalars()?;
 
         let mut response = vec![G::ScalarField::zero(); n + 2];
         merlin.fill_next_scalars(&mut response)?;

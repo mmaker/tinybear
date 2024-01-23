@@ -12,7 +12,6 @@ fn test_aes128() {
     let mut arthur = iop.to_arthur();
     let ck = pedersen::setup::<G>(arthur.rng(), crate::registry::AES128REG.witness_len * 2);
 
-    println!("len: {}", crate::registry::AES128REG.witness_len);
     let message = *b"\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C\xE7";
     let key = *b"\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C";
     let ctx = aes::aes128(message, key);
@@ -74,7 +73,7 @@ fn test_aes256() {
     let iop = ArkGroupIOPattern::<G>::new("tinybear test aes256").add_aes256_proof();
     let mut arthur = iop.to_arthur();
 
-    let ck = pedersen::setup::<G>(arthur.rng(), crate::registry::AES256REG.witness_len * 2);
+    let ck = pedersen::setup::<G>(arthur.rng(), crate::registry::AES256REG.witness_len * 3);
 
     let message = *b"\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C\xE7";
     let key = *b"\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C";
@@ -101,5 +100,5 @@ fn test_aes256() {
         &round_keys_commitment,
         ctx,
     );
-    assert!(result.is_ok());
+    assert!(result.is_ok(), "Proof veirification fails with {}", result.unwrap_err());
 }

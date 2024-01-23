@@ -1,7 +1,7 @@
 use ark_ec::CurveGroup;
 use ark_std::UniformRand;
 use nimue::plugins::arkworks::{ArkGroupArthur, ArkGroupMerlin};
-use nimue::ProofResult;
+use nimue::{Arthur, Merlin, ProofResult};
 use rand::{CryptoRng, RngCore};
 
 use crate::pedersen::CommitmentKey;
@@ -14,7 +14,7 @@ pub use crate::traits::*;
 
 #[inline]
 pub fn aes128_prove<'a, G: CurveGroup>(
-    arthur: &'a mut ArkGroupArthur<G>,
+    arthur: &'a mut Arthur,
     ck: &CommitmentKey<G>,
     message: [u8; 16],
     message_opening: G::ScalarField,
@@ -28,7 +28,7 @@ pub fn aes128_prove<'a, G: CurveGroup>(
 
 #[inline]
 pub fn aes128ks_prove<'a, G: CurveGroup>(
-    arthur: &'a mut ArkGroupArthur<G>,
+    arthur: &'a mut Arthur,
     ck: &CommitmentKey<G>,
     key: [u8; 16],
     key_opening: G::ScalarField,
@@ -39,7 +39,7 @@ pub fn aes128ks_prove<'a, G: CurveGroup>(
 
 #[inline]
 pub fn aes128_verify<G: CurveGroup>(
-    merlin: &mut ArkGroupMerlin<G>,
+    merlin: &mut Merlin,
     ck: &CommitmentKey<G>,
     message_commitment: &G,
     round_keys_commitment: &G,
@@ -52,7 +52,7 @@ pub fn aes128_verify<G: CurveGroup>(
 
 #[inline]
 pub fn aes128ks_verify<G: CurveGroup>(
-    merlin: &mut ArkGroupMerlin<G>,
+    merlin: &mut Merlin,
     ck: &CommitmentKey<G>,
     round_keys_com: G,
 ) -> ProofResult<()> {
@@ -62,7 +62,7 @@ pub fn aes128ks_verify<G: CurveGroup>(
 
 #[inline]
 pub fn aes256_prove<'a, G: CurveGroup>(
-    arthur: &'a mut ArkGroupArthur<G>,
+    arthur: &'a mut Arthur,
     ck: &CommitmentKey<G>,
     message: [u8; 16],
     message_opening: G::ScalarField,
@@ -76,7 +76,7 @@ pub fn aes256_prove<'a, G: CurveGroup>(
 
 #[inline]
 pub fn aes256ks_prove<'a, G: CurveGroup>(
-    arthur: &'a mut ArkGroupArthur<G>,
+    arthur: &'a mut Arthur,
     ck: &CommitmentKey<G>,
     key: [u8; 32],
     key_opening: G::ScalarField,
@@ -86,7 +86,7 @@ pub fn aes256ks_prove<'a, G: CurveGroup>(
 }
 
 pub fn aes256_verify<G>(
-    merlin: &mut ArkGroupMerlin<G>,
+    merlin: &mut Merlin,
     ck: &CommitmentKey<G>,
     m_com: &G,
     rk_com: &G,
