@@ -1,6 +1,5 @@
 use ark_ec::CurveGroup;
 use ark_std::UniformRand;
-use nimue::plugins::arkworks::{ArkGroupArthur, ArkGroupMerlin};
 use nimue::{Arthur, Merlin, ProofResult};
 use rand::{CryptoRng, RngCore};
 

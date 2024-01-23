@@ -11,19 +11,20 @@ use crate::traits::{Instance, LinProof};
 use crate::{constrain, linalg, lookup, registry, sigma, sumcheck};
 
 pub fn aes_verify<'a, G, LP: LinProof<G>, const R: usize>(
-    merlin: &'a mut Merlin,
+    merlin: &mut Merlin<'a>,
     ck: &CommitmentKey<G>,
     instance: &impl Instance<G>,
 ) -> ProofResult<()>
 where
     G: CurveGroup,
+    Merlin<'a>: ArkGroupReader<G>,
 {
     let [W] = merlin.next_points().unwrap();
     let [c_lup_batch] = merlin.challenge_scalars().unwrap();
     let [_, c_xor, c_xor2, c_sbox, c_rj2] = linalg::powers(c_lup_batch, 5).try_into().unwrap();
-    let [M]: [G; 1] = merlin.next_points().unwrap();
+    let [M] = merlin.next_points().unwrap();
     let [c_lup] = merlin.challenge_scalars().unwrap();
-    let [Q, Y]: [G; 2] = merlin.next_points().unwrap();
+    let [Q, Y] = merlin.next_points().unwrap();
 
     // Compute h and t
     let needles_len = instance.needles_len();
