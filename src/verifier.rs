@@ -2,22 +2,22 @@
 
 use ark_ec::CurveGroup;
 use ark_ff::Field;
-use nimue::plugins::arkworks::*;
-use nimue::ProofResult;
+use nimue::plugins::ark::{FieldChallenges, GroupReader};
+use nimue::{Merlin, ProofResult};
 
 use crate::linalg::powers;
 use crate::pedersen::CommitmentKey;
 use crate::traits::{Instance, LinProof};
 use crate::{constrain, linalg, lookup, registry, sigma, sumcheck};
 
-pub fn aes_verify<'a, G, LP: LinProof<G>, const R: usize>(
-    merlin: &mut Merlin<'a>,
+pub fn aes_verify<G, LP: LinProof<G>, const R: usize>(
+    merlin: &mut Merlin,
     ck: &CommitmentKey<G>,
     instance: &impl Instance<G>,
 ) -> ProofResult<()>
 where
     G: CurveGroup,
-    Merlin<'a>: ArkGroupReader<G>,
+    for<'a> Merlin<'a>: GroupReader<G> + FieldChallenges<G::ScalarField>,
 {
     let [W] = merlin.next_points().unwrap();
     let [c_lup_batch] = merlin.challenge_scalars().unwrap();

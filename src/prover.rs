@@ -2,9 +2,9 @@
 #![allow(non_snake_case)]
 
 use ark_ec::CurveGroup;
-use ark_ff::Field;
+use ark_ff::{Field, PrimeField};
 
-use nimue::plugins::arkworks::*;
+use nimue::plugins::ark::*;
 use nimue::ProofResult;
 
 use super::{aes, constrain, linalg, lookup, pedersen, sigma, sumcheck};
@@ -351,7 +351,10 @@ pub fn aes_prove<'a, G: CurveGroup, LP: LinProof<G>, const R: usize>(
     arthur: &'a mut Arthur,
     ck: &CommitmentKey<G>,
     witness: &impl Witness<G::ScalarField>,
-) -> ProofResult<&'a [u8]> {
+) -> ProofResult<&'a [u8]>
+where
+    G::ScalarField: PrimeField,
+{
     // Commit to the AES trace.
     // TIME: ~3-4ms [outdated]
     let w_vec = witness.witness_vec();
@@ -548,14 +551,15 @@ pub fn aes_prove<'a, G: CurveGroup, LP: LinProof<G>, const R: usize>(
 
 #[test]
 fn test_prove() {
-    use ark_ff::Zero;
     use crate::TinybearIO;
-    use nimue::plugins::arkworks::ArkGroupIOPattern;
+    use ark_ff::Zero;
+    use nimue::IOPattern;
 
     type G = ark_curve25519::EdwardsProjective;
     type F = ark_curve25519::Fr;
 
-    let iop = ArkGroupIOPattern::<G>::new("test_prove").add_aes128_proof();
+    let iop = IOPattern::new("test_prove");
+    let iop = TinybearIO::<G>::add_aes128_proof(iop);
     let mut arthur = iop.to_arthur();
 
     let message = [
@@ -586,8 +590,8 @@ fn test_trace_to_needles_map() {
     ];
     let key = [
         0xE7u8, 0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69,
-        0x0C,0xE7u8, 0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23, 0x69,
-        0x0C,
+        0x0C, 0xE7u8, 0x4A, 0x8F, 0x6D, 0xE2, 0x12, 0x7B, 0xC9, 0x34, 0xA5, 0x58, 0x91, 0xFD, 0x23,
+        0x69, 0x0C,
     ];
     // actual length needed is: ceil(log(OFFSETS.cipher_len * 2))
     let challenges = (0..15).map(|_| F::rand(rng)).collect::<Vec<_>>();

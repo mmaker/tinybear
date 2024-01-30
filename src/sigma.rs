@@ -4,8 +4,8 @@ use std::vec;
 use ark_ec::CurveGroup;
 use ark_serialize::CanonicalSerialize;
 use ark_std::{UniformRand, Zero};
-use nimue::plugins::arkworks::*;
-use nimue::{DuplexHash, ProofResult, ProofError};
+use nimue::plugins::ark::*;
+use nimue::{DuplexHash, ProofError, ProofResult};
 
 use crate::linalg;
 use crate::pedersen::commit_hiding;
@@ -19,7 +19,10 @@ pub struct SigmaProof<G: CurveGroup> {
     pub response: Vec<G::ScalarField>,
 }
 
-impl<G: CurveGroup, H: DuplexHash<u8>> LinProofIO for ArkGroupIOPattern<G, H> {
+impl<G: CurveGroup, H: DuplexHash<u8>> LinProofIO<G> for IOPattern<H>
+where
+    IOPattern<H>: GroupIOPattern<G> + FieldIOPattern<G::ScalarField>,
+{
     fn add_lin_proof(self, len: usize) -> Self {
         self.add_points(2, "commitment")
             .challenge_scalars(1, "challenge")
@@ -27,7 +30,10 @@ impl<G: CurveGroup, H: DuplexHash<u8>> LinProofIO for ArkGroupIOPattern<G, H> {
     }
 }
 
-impl<G: CurveGroup, H: DuplexHash<u8>> MulProofIO for ArkGroupIOPattern<G, H> {
+impl<G: CurveGroup, H: DuplexHash<u8>> MulProofIO<G> for IOPattern<H>
+where
+    IOPattern<H>: GroupIOPattern<G> + FieldIOPattern<G::ScalarField>,
+{
     fn add_mul_proof(self) -> Self {
         self.add_points(2, "commitment")
             .challenge_scalars(1, "challenge")
@@ -203,7 +209,7 @@ impl<G: CurveGroup> LinProof<G> for SigmaProof<G> {
     ) -> ProofResult<()> {
         let n = a_vec.len();
 
-        let commitment: [G; 2]  = merlin.next_points::<2>()?;
+        let commitment: [G; 2] = merlin.next_points::<2>()?;
         // Get challenges from verifier
         let [c]: [G::ScalarField; 1] = merlin.challenge_scalars()?;
 
@@ -239,7 +245,8 @@ fn test_mul() {
     let B = ck.G * b + ck.H * rho_b;
     let C = ck.G * c + ck.H * rho_c;
 
-    let iop = ArkGroupIOPattern::<G>::new("test").add_mul_proof();
+    let iop = IOPattern::new("test");
+    let iop = MulProofIO::<G>::add_mul_proof(iop);
     let mut arthur = iop.to_arthur();
     let proof_result = mul_prove(&mut arthur, &ck, a, B, rho_a, rho_b, rho_c);
     assert!(proof_result.is_ok());
@@ -259,7 +266,9 @@ fn test_lineval_correctness() {
 
     // Basic setup
     let len = 1 << 8;
-    let iop = ArkGroupIOPattern::<G>::new("lineval test").add_lin_proof(len);
+    let iop = IOPattern::new("lineval test");
+    let iop = LinProofIO::<G>::add_lin_proof(iop, len);
+
     let mut arthur = iop.to_arthur();
 
     let ck = pedersen::setup::<G>(rng, 2084);

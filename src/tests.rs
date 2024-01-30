@@ -1,4 +1,4 @@
-use nimue::plugins::arkworks::ArkGroupIOPattern;
+use nimue::plugins::ark::IOPattern;
 
 use crate::{aes, pedersen, TinybearIO};
 
@@ -7,7 +7,8 @@ type G = ark_curve25519::EdwardsProjective;
 
 #[test]
 fn test_aes128() {
-    let iop = ArkGroupIOPattern::<G>::new("tinybear test aes128").add_aes128_proof();
+    let iop = IOPattern::new("tinybear test aes128");
+    let iop = TinybearIO::<G>::add_aes128_proof(iop);
 
     let mut arthur = iop.to_arthur();
     let ck = pedersen::setup::<G>(arthur.rng(), crate::registry::AES128REG.witness_len * 2);
@@ -45,7 +46,8 @@ fn test_aes128() {
 #[ignore = "rearrange keyschedule registry"]
 #[test]
 fn test_aes128ks() {
-    let iop = ArkGroupIOPattern::<G>::new("tinybear test aes128").add_aes128keysch_proof();
+    let iop = IOPattern::new("tinybear test aes128");
+    let iop = TinybearIO::<G>::add_aes128keysch_proof(iop);
 
     let mut arthur = iop.to_arthur();
 
@@ -70,7 +72,8 @@ fn test_aes128ks() {
 
 #[test]
 fn test_aes256() {
-    let iop = ArkGroupIOPattern::<G>::new("tinybear test aes256").add_aes256_proof();
+    let iop = IOPattern::new("tinybear test aes256");
+    let iop = TinybearIO::<G>::add_aes256_proof(iop);
     let mut arthur = iop.to_arthur();
 
     let ck = pedersen::setup::<G>(arthur.rng(), crate::registry::AES256REG.witness_len * 3);
@@ -100,5 +103,9 @@ fn test_aes256() {
         &round_keys_commitment,
         ctx,
     );
-    assert!(result.is_ok(), "Proof veirification fails with {}", result.unwrap_err());
+    assert!(
+        result.is_ok(),
+        "Proof veirification fails with {}",
+        result.unwrap_err()
+    );
 }

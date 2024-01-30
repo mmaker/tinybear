@@ -1,15 +1,16 @@
 use ark_ec::CurveGroup;
 use ark_ff::Field;
 use ark_serialize::CanonicalSerialize;
-use nimue::plugins::arkworks::ArkGroupIOPattern;
+use nimue::plugins::ark::{FieldIOPattern, GroupIOPattern};
+use nimue::{ByteIOPattern, IOPattern};
 
 use nimue::{Arthur, Merlin};
-use nimue::{ProofResult, DuplexHash};
+use nimue::{DuplexHash, ProofResult};
 
 use crate::pedersen::CommitmentKey;
 use crate::registry;
 
-pub trait TinybearIO: SumcheckIO + MulProofIO + LinProofIO + Sized {
+pub trait TinybearIO<G: CurveGroup>: SumcheckIO<G> + MulProofIO<G> + LinProofIO<G> + Sized {
     fn add_aes_statement(self) -> Self;
     fn add_tinybear_proof(self, needles_len: usize, witness_len: usize) -> Self;
 
@@ -29,15 +30,15 @@ pub trait TinybearIO: SumcheckIO + MulProofIO + LinProofIO + Sized {
     }
 }
 
-pub trait SumcheckIO {
+pub trait SumcheckIO<G: CurveGroup> {
     fn add_sumcheck(self, len: usize) -> Self;
 }
 
-pub trait LinProofIO {
+pub trait LinProofIO<G: CurveGroup> {
     fn add_lin_proof(self, len: usize) -> Self;
 }
 
-pub trait MulProofIO {
+pub trait MulProofIO<G: CurveGroup> {
     fn add_mul_proof(self) -> Self;
 }
 
@@ -92,7 +93,15 @@ pub trait Witness<F: Field> {
     fn full_witness_opening(&self) -> F;
 }
 
-impl<G: CurveGroup, H: DuplexHash<u8>> TinybearIO for ArkGroupIOPattern<G, H, u8> {
+impl<G: CurveGroup, H: DuplexHash> TinybearIO<G> for IOPattern<H>
+where
+    IOPattern<H>: GroupIOPattern<G>
+        + FieldIOPattern<G::ScalarField>
+        + ByteIOPattern
+        + SumcheckIO<G>
+        + MulProofIO<G>
+        + LinProofIO<G>,
+{
     fn add_aes_statement(self) -> Self {
         self.add_points(1, "message commitment")
             .add_points(1, "round keys commitment")

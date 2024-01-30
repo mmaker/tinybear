@@ -25,7 +25,8 @@ fn bench_aes128_prove(c: &mut Criterion) {
                 message_opening,
                 &key,
                 key_opening,
-            ).unwrap();
+            )
+            .unwrap();
         });
     });
 }
@@ -49,7 +50,8 @@ fn bench_aes256_prove(c: &mut Criterion) {
                 message_opening,
                 &key,
                 key_opening,
-            ).unwrap();
+            )
+            .unwrap();
         });
     });
 }
@@ -83,17 +85,11 @@ fn bench_aes128_verify(c: &mut Criterion) {
             message_opening,
             &key,
             key_opening,
-        ).unwrap();
+        )
+        .unwrap();
         b.iter(|| {
             let mut merlin = iopat.to_merlin(proof);
-            assert!(aes128_verify(
-                &mut merlin,
-                &ck,
-                &message_com,
-                &round_keys_com,
-                ctx,
-            )
-            .is_ok())
+            assert!(aes128_verify(&mut merlin, &ck, &message_com, &round_keys_com, ctx,).is_ok())
         });
     });
 }
@@ -129,17 +125,12 @@ fn bench_aes256_verify(c: &mut Criterion) {
             message_opening,
             &key,
             key_opening,
-        ).unwrap();
+        )
+        .unwrap();
 
         b.iter(|| {
             let mut merlin = iopat.to_merlin(proof);
-            aes256_verify(
-                &mut merlin,
-                &ck,
-                &message_com,
-                &round_keys_com,
-                ctx,
-            )
+            aes256_verify(&mut merlin, &ck, &message_com, &round_keys_com, ctx)
         });
     });
 }

@@ -1,15 +1,18 @@
 use ark_ec::CurveGroup;
 use ark_ff::AdditiveGroup;
 use ark_ff::{Field, PrimeField};
-use nimue::plugins::arkworks::*;
-use nimue::{Arthur, Merlin, DuplexHash};
+use nimue::plugins::ark::*;
+use nimue::{Arthur, DuplexHash, IOPattern, Merlin};
 
 use crate::pedersen::{self, CommitmentKey};
 use crate::traits::SumcheckIO;
 
 pub(crate) struct Claim<A: AdditiveGroup>(pub Vec<A>, pub Vec<A>);
 
-impl<G: CurveGroup, H: DuplexHash<u8>> SumcheckIO for ArkGroupIOPattern<G, H> {
+impl<G: CurveGroup, H: DuplexHash<u8>> SumcheckIO<G> for IOPattern<H>
+where
+    IOPattern<H>: GroupIOPattern<G> + FieldIOPattern<G::ScalarField>,
+{
     fn add_sumcheck(mut self, len: usize) -> Self {
         for _ in 0..ark_std::log2(len) {
             self = self
@@ -206,7 +209,8 @@ fn test_sumcheck() {
     let ip = linalg::inner_product(&v, &w);
     let (ip_com, mut ip_opening) = pedersen::commit_hiding(&mut rng, &ck, &[ip]);
 
-    let iop = ArkGroupIOPattern::<G>::new("sumcheck").add_sumcheck(16);
+    let iop = IOPattern::new("sumcheck");
+    let iop = SumcheckIO::<G>::add_sumcheck(iop, 16);
     let mut arthur = iop.to_arthur();
     // Prover side of sumcheck
     let (expected_chals, openings, final_foldings) = sumcheck(&mut arthur, &ck, &v[..], &w[..]);
