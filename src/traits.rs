@@ -1,6 +1,5 @@
 use ark_ec::CurveGroup;
 use ark_ff::Field;
-use ark_serialize::CanonicalSerialize;
 use nimue::plugins::ark::{FieldIOPattern, GroupIOPattern};
 use nimue::{ByteIOPattern, IOPattern};
 
@@ -36,13 +35,14 @@ pub trait SumcheckIO<G: CurveGroup> {
 
 pub trait LinProofIO<G: CurveGroup> {
     fn add_lin_proof(self, len: usize) -> Self;
+    fn add_compressed_lin_proof(self, len: usize) -> Self;
 }
 
 pub trait MulProofIO<G: CurveGroup> {
     fn add_mul_proof(self) -> Self;
 }
 
-pub trait LinProof<G: CurveGroup>: CanonicalSerialize + Default {
+pub trait LinProof<G: CurveGroup> {
     /// Prove that <x, a> = y, where x and y are private
     /// phi is blinder of vec_x
     /// psi is blinder of y

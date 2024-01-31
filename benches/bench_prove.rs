@@ -1,6 +1,6 @@
 use ark_std::UniformRand;
 use criterion::{criterion_group, criterion_main, Criterion};
-use nimue::plugins::arkworks::ArkGroupIOPattern;
+use nimue::IOPattern;
 use tinybear::*;
 
 type G = ark_curve25519::EdwardsProjective;
@@ -14,9 +14,10 @@ fn bench_aes128_prove(c: &mut Criterion) {
         let message_opening = F::rand(rng);
         let key_opening = F::rand(rng);
         let ck = pedersen::setup::<G>(&mut rand::thread_rng(), 2048);
-        let iopat = ArkGroupIOPattern::new("benchmark-tinybear-aes128").add_aes128_proof();
+        let iop = IOPattern::new("benchmark-tinybear-aes128");
+        let iop = TinybearIO::<G>::add_aes128_proof(iop);
         b.iter(|| {
-            let mut arthur = iopat.to_arthur();
+            let mut arthur = iop.to_arthur();
 
             crate::aes128_prove(
                 &mut arthur,
@@ -39,9 +40,10 @@ fn bench_aes256_prove(c: &mut Criterion) {
         let message_opening = F::rand(rng);
         let key_opening = F::rand(rng);
         let ck = pedersen::setup::<G>(&mut rand::thread_rng(), 2048);
-        let iopat = ArkGroupIOPattern::new("benchmark-tinybear-aes256").add_aes256_proof();
+        let iop = IOPattern::new("benchmark-tinybear-aes256");
+        let iop = TinybearIO::<G>::add_aes256_proof(iop);
         b.iter(|| {
-            let mut arthur = iopat.to_arthur();
+            let mut arthur = iop.to_arthur();
 
             aes256_prove(
                 &mut arthur,
@@ -76,8 +78,9 @@ fn bench_aes128_verify(c: &mut Criterion) {
     let ctx = aes::aes128(message, key);
 
     c.bench_function("aes128/verify", |b| {
-        let iopat = ArkGroupIOPattern::new("benchmark-tinybear-aes128").add_aes128_proof();
-        let mut arthur = iopat.to_arthur();
+        let iop = IOPattern::new("benchmark-tinybear-aes128");
+        let iop = TinybearIO::<G>::add_aes128_proof(iop);
+        let mut arthur = iop.to_arthur();
         let proof = aes128_prove(
             &mut arthur,
             &ck,
@@ -88,7 +91,7 @@ fn bench_aes128_verify(c: &mut Criterion) {
         )
         .unwrap();
         b.iter(|| {
-            let mut merlin = iopat.to_merlin(proof);
+            let mut merlin = iop.to_merlin(proof);
             assert!(aes128_verify(&mut merlin, &ck, &message_com, &round_keys_com, ctx,).is_ok())
         });
     });
@@ -115,9 +118,10 @@ fn bench_aes256_verify(c: &mut Criterion) {
     let ctx = aes::aes256(message, key);
 
     c.bench_function("aes256/verify", |b| {
-        let iopat = ArkGroupIOPattern::new("benchmark-tinybear-aes256").add_aes128_proof();
+        let iop = IOPattern::new("benchmark-tinybear-aes256");
+        let iop = TinybearIO::<G>::add_aes128_proof(iop);
 
-        let mut arthur = iopat.to_arthur();
+        let mut arthur = iop.to_arthur();
         let proof = aes256_prove(
             &mut arthur,
             &ck,
@@ -129,7 +133,7 @@ fn bench_aes256_verify(c: &mut Criterion) {
         .unwrap();
 
         b.iter(|| {
-            let mut merlin = iopat.to_merlin(proof);
+            let mut merlin = iop.to_merlin(proof);
             aes256_verify(&mut merlin, &ck, &message_com, &round_keys_com, ctx)
         });
     });
