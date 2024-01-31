@@ -150,7 +150,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
             .map(|(a, G_i)| (ck.G * a + G_i).into_affine())
             .collect::<Vec<_>>();
         let (challenges, reduced_claim) = crate::sumcheck::reduce(merlin, n, *X + Y);
-        let [f_folded]: [G::ScalarField; 1] = merlin.next_scalars().unwrap();
+        let [f_folded]: [G::ScalarField; 1] = [G::ScalarField::zero()];
         let challenges_vec = crate::linalg::tensor(&challenges);
         let w_folded = G::msm_unchecked(&w, &challenges_vec);
         if w_folded * f_folded == reduced_claim {
