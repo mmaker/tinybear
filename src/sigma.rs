@@ -7,11 +7,11 @@ use ark_std::{UniformRand, Zero};
 use nimue::plugins::ark::*;
 use nimue::{DuplexHash, ProofError, ProofResult};
 
-use crate::{linalg, SumcheckIO};
 use crate::pedersen::commit_hiding;
 use crate::pedersen::CommitmentKey;
 use crate::traits::MulProofIO;
 use crate::traits::{LinProof, LinProofIO};
+use crate::{linalg, SumcheckIO};
 
 #[derive(Default, CanonicalSerialize)]
 pub struct SigmaProof<G: CurveGroup> {
@@ -31,6 +31,11 @@ where
 
     fn add_compressed_lin_proof(self, len: usize) -> Self {
         self.add_sumcheck(len)
+            // we should rather send a commitment to the final element
+            // .add_points(1, "folded f")
+            .add_scalars(1, "folded f")
+            // We'd need this one
+            // .add_mul_proof()
     }
 }
 
@@ -125,7 +130,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
         let mut msgs = Vec::new();
 
         while w.len() + v.len() > 2 {
-            let [A, B] = crate::sumcheck::group_round_message(&v, &w);
+            let [A, B] = crate::sumcheck::round_message(&v, &w);
             arthur.add_points(&[A, B]).unwrap();
             let [c] = arthur.challenge_scalars().unwrap();
             crate::sumcheck::fold_inplace(&mut v, c);
@@ -133,6 +138,8 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
 
             msgs.push([A, B]);
         }
+
+        arthur.add_scalars(&v).unwrap();
         Ok(arthur.transcript())
     }
 
@@ -150,7 +157,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
             .map(|(a, G_i)| (ck.G * a + G_i).into_affine())
             .collect::<Vec<_>>();
         let (challenges, reduced_claim) = crate::sumcheck::reduce(merlin, n, *X + Y);
-        let [f_folded]: [G::ScalarField; 1] = [G::ScalarField::zero()];
+        let [f_folded]: [G::ScalarField; 1] = merlin.next_scalars().unwrap();
         let challenges_vec = crate::linalg::tensor(&challenges);
         let w_folded = G::msm_unchecked(&w, &challenges_vec);
         if w_folded * f_folded == reduced_claim {
@@ -171,15 +178,15 @@ impl<G: CurveGroup> LinProof<G> for SigmaProof<G> {
         a_vec: &[G::ScalarField],
     ) -> ProofResult<&'a [u8]> {
         assert!(x_vec.len() <= a_vec.len());
-        // Create the prover's blinders
+        // Create the prover's opening
         let mut vec_k = (0..a_vec.len())
             .map(|_| G::ScalarField::rand(arthur.rng()))
             .collect::<Vec<_>>();
 
-        // Commit to the blinders and send the commitments to the verifier
+        // Commit to the opening and send the commitments to the verifier
+        let y_k = linalg::inner_product(&vec_k, a_vec);
         let (K_1, kappa_1) = commit_hiding(arthur.rng(), ck, &vec_k);
-        let (K_2, kappa_2) =
-            commit_hiding(arthur.rng(), ck, &[linalg::inner_product(&vec_k, a_vec)]);
+        let (K_2, kappa_2) = commit_hiding(arthur.rng(), ck, &[y_k]);
         vec_k.extend_from_slice(&[kappa_1, kappa_2]);
         arthur.add_points(&[K_1, K_2])?;
 
@@ -283,7 +290,6 @@ fn test_lineval_correctness() {
     assert!(SigmaProof::verify(&mut transcript_v, &ck, &a_vec, &X, &Y).is_ok());
 }
 
-
 /// Check proof that <vec_x, vec_a> = y
 #[test]
 fn test_compressedsigma_correctness() {
@@ -301,14 +307,19 @@ fn test_compressedsigma_correctness() {
 
     let ck = pedersen::setup::<G>(rng, 2084);
     // Linear evaluation setup
-    let a_vec = (0..len).map(|_| F::rand(rng)).collect::<Vec<_>>();
-    let x_vec = (0..len).map(|_| F::rand(rng)).collect::<Vec<_>>();
+    let a_vec = (0..len).map(|_| F::rand(arthur.rng())).collect::<Vec<_>>();
+    let x_vec = (0..len).map(|_| F::rand(arthur.rng())).collect::<Vec<_>>();
     let (X, X_opening) = pedersen::commit_hiding(rng, &ck, &x_vec);
     let y = linalg::inner_product(&x_vec, &a_vec);
     let (Y, Y_opening) = pedersen::commit_hiding(rng, &ck, &[y]);
 
+    // TEST FOR GEORGY: NO ZERO-KNOWLEDGE
+    let X = X - ck.H * X_opening;
+    let Y = Y - ck.H * Y_opening;
+
     // Let's prove!
-    let proof_result = CompressedSigma::new(&mut arthur, &ck, &x_vec, &X_opening, &Y_opening, &a_vec);
+    let proof_result =
+        CompressedSigma::new(&mut arthur, &ck, &x_vec, &X_opening, &Y_opening, &a_vec);
     assert!(proof_result.is_ok());
     let proof = proof_result.unwrap();
 

@@ -7,7 +7,7 @@ use nimue::{Arthur, DuplexHash, IOPattern, Merlin};
 use crate::pedersen::{self, CommitmentKey};
 use crate::traits::SumcheckIO;
 
-pub(crate) struct Claim<A: AdditiveGroup>(pub Vec<A>, pub Vec<A>);
+pub struct Claim<A: AdditiveGroup>(pub Vec<A>, pub Vec<A>);
 
 impl<G: CurveGroup, H: DuplexHash<u8>> SumcheckIO<G> for IOPattern<H>
 where
@@ -31,7 +31,7 @@ pub fn fold_inplace<M: AdditiveGroup>(f: &mut Vec<M>, r: M::Scalar) {
     f.drain(half..);
 }
 
-fn round_message<F, G>(f: &[F], g: &[G]) -> [G; 2]
+pub fn round_message<F, G>(f: &[F], g: &[G]) -> [G; 2]
 where
     F: PrimeField,
     G: AdditiveGroup<Scalar = F>,
@@ -52,27 +52,6 @@ where
         a += g_even * f_even;
         b += *g_odd * f_even + g_even * f_odd;
     }
-    [a, b]
-}
-
-pub fn group_round_message<F, G>(f: &[F], g: &[G]) -> [G; 2]
-where
-    F: PrimeField,
-    G: CurveGroup<ScalarField = F>,
-{
-    let n = (f.len() + 1) / 2;
-    let (f_left, f_right) = f.split_at(n);
-    let (g_left, g_right) = g.split_at(n);
-
-    let a = g_right
-        .iter()
-        .zip(f_left.iter())
-        .fold(G::zero(), |acc, (&g, &f)| acc + g * f);
-    let b = g_left
-        .iter()
-        .zip(f_right.iter())
-        .fold(G::zero(), |acc, (&g, &f)| acc + g * f);
-
     [a, b]
 }
 
