@@ -31,11 +31,8 @@ where
 
     fn add_compressed_lin_proof(self, len: usize) -> Self {
         self.add_sumcheck(len)
-            // we should rather send a commitment to the final element
-            // .add_points(1, "folded f")
-            .add_scalars(1, "folded f")
-            // We'd need this one
-            // .add_mul_proof()
+            .add_points(1, "folded f")
+            .add_mul_proof()
     }
 }
 
@@ -114,18 +111,33 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
         arthur: &'a mut Arthur,
         ck: &CommitmentKey<G>,
         x_vec: &[G::ScalarField],
-        _X_opening: &G::ScalarField,
-        _Y_opening: &G::ScalarField,
+        X_opening: &G::ScalarField,
+        Y_opening: &G::ScalarField,
         a_vec: &[G::ScalarField],
     ) -> ProofResult<&'a [u8]> {
         let n = usize::min(a_vec.len(), x_vec.len());
 
+        // Adding zero knowledge
+        // vec_x_prime = [x_1, ..., x_n, r_x]
+        let mut x_vec_prime = x_vec.to_vec();
+        x_vec_prime.push(*X_opening);
+
+        // vec_G_prime = [G_1, ..., G_n, H]
         debug_assert!(n <= ck.vec_G.len());
-        let mut w = ark_std::cfg_iter!(a_vec)
-            .zip(ck.vec_G[..n].iter())
+        let mut G_vec_prime = ck.vec_G[..n].to_vec();
+        G_vec_prime.push(ck.H);
+        assert!(x_vec_prime.len() == G_vec_prime.len());
+
+        // vec_a_prime = [a_1, ..., a_n, 0]
+        let mut a_vec_prime = a_vec.to_vec();
+        a_vec_prime.push(G::ScalarField::zero());
+        assert!(x_vec_prime.len() == a_vec_prime.len());
+
+        // Compute <a' + G'>
+        let mut vec_aG = ark_std::cfg_iter!(a_vec_prime)
+            .zip(G_vec_prime.iter())
             .map(|(a, G_i)| ck.G * a + G_i)
             .collect::<Vec<G>>();
-        let mut v = x_vec.to_vec();
 
         let mut msgs = Vec::new();
 
@@ -133,8 +145,8 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
             let [A, B] = crate::sumcheck::round_message(&v, &w);
             arthur.add_points(&[A, B]).unwrap();
             let [c] = arthur.challenge_scalars().unwrap();
-            crate::sumcheck::fold_inplace(&mut v, c);
-            crate::sumcheck::fold_inplace(&mut w, c);
+            crate::sumcheck::fold_inplace(&mut x_vec_prime, c);
+            crate::sumcheck::fold_inplace(&mut vec_aG, c);
 
             msgs.push([A, B]);
         }
@@ -152,8 +164,18 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
     ) -> ProofResult<()> {
         let n = a_vec.len();
 
-        let w = ark_std::cfg_iter!(a_vec)
-            .zip(ck.vec_G[..n].iter())
+        // vec_G_prime = [G_1, ..., G_n, H]
+        debug_assert!(n <= ck.vec_G.len());
+        let mut G_vec_prime = ck.vec_G[..n].to_vec();
+        G_vec_prime.push(ck.H);
+
+        // vec_a_prime = [a_1, ..., a_n, 0]
+        let mut a_vec_prime = a_vec.to_vec();
+        a_vec_prime.push(G::ScalarField::zero());
+
+        // Compute <a'G + G'>
+        let vec_aG = ark_std::cfg_iter!(a_vec_prime)
+            .zip(G_vec_prime)
             .map(|(a, G_i)| (ck.G * a + G_i).into_affine())
             .collect::<Vec<_>>();
         let (challenges, reduced_claim) = crate::sumcheck::reduce(merlin, n, *X + Y);
@@ -299,7 +321,7 @@ fn test_compressedsigma_correctness() {
     let rng = &mut nimue::DefaultRng::default();
 
     // Basic setup
-    let len = 1 << 8;
+    let len = (1 << 8) - 13;
     let iop = IOPattern::new("lineval test");
     let iop = LinProofIO::<G>::add_compressed_lin_proof(iop, len);
 
@@ -312,10 +334,6 @@ fn test_compressedsigma_correctness() {
     let (X, X_opening) = pedersen::commit_hiding(rng, &ck, &x_vec);
     let y = linalg::inner_product(&x_vec, &a_vec);
     let (Y, Y_opening) = pedersen::commit_hiding(rng, &ck, &[y]);
-
-    // TEST FOR GEORGY: NO ZERO-KNOWLEDGE
-    let X = X - ck.H * X_opening;
-    let Y = Y - ck.H * Y_opening;
 
     // Let's prove!
     let proof_result =
