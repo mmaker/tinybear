@@ -139,16 +139,24 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
             .map(|(a, G_i)| ck.G * a + G_i)
             .collect::<Vec<G>>();
 
-        let mut msgs = Vec::new();
-
-        while w.len() + v.len() > 2 {
-            let [A, B] = crate::sumcheck::round_message(&v, &w);
+        // Show that <x', a' + G'> = Y + X
+        let mut openings = Vec::new();
+        let mut chals  = Vec::new();
+        while vec_aG.len() + x_vec_prime.len() > 2 {
+            let [A, B] = crate::sumcheck::round_message(&x_vec_prime, &vec_aG);
+            let A_opening = G::ScalarField::rand(arthur.rng());
+            let B_opening = G::ScalarField::rand(arthur.rng());
+            // Blind A and B
+            let A = A + ck.H.mul(A_opening);
+            let B = B + ck.H.mul(B_opening);
             arthur.add_points(&[A, B]).unwrap();
+
             let [c] = arthur.challenge_scalars().unwrap();
             crate::sumcheck::fold_inplace(&mut x_vec_prime, c);
             crate::sumcheck::fold_inplace(&mut vec_aG, c);
 
-            msgs.push([A, B]);
+            chals.push(c);
+            openings.push([A_opening, B_opening]);
         }
 
         arthur.add_scalars(&v).unwrap();
