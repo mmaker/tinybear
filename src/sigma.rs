@@ -1,4 +1,5 @@
 #![allow(non_snake_case)]
+use std::ops::Mul;
 use std::vec;
 
 use ark_ec::CurveGroup;
@@ -159,7 +160,17 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
             openings.push([A_opening, B_opening]);
         }
 
-        arthur.add_scalars(&v).unwrap();
+        // Commit to the folded x_vec_prime
+        let (X_folded_com, X_folded_com_opening) = commit_hiding(arthur.rng(), ck, &[x_vec_prime[0]]);
+        arthur.add_points(&[X_folded_com]).unwrap();
+
+        let ipa_sumcheck_opening =
+            crate::sumcheck::reduce_with_challenges(&openings, &chals, *Y_opening);
+
+        // Create a mul proof that v_0 * W_0 = Y'
+        // where Y' is the tensorcheck claim
+        mul_prove(arthur, &ck, x_vec_prime[0], vec_aG[0], X_folded_com_opening, G::ScalarField::zero(), ipa_sumcheck_opening).unwrap();
+
         Ok(arthur.transcript())
     }
 
@@ -186,15 +197,17 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
             .zip(G_vec_prime)
             .map(|(a, G_i)| (ck.G * a + G_i).into_affine())
             .collect::<Vec<_>>();
-        let (challenges, reduced_claim) = crate::sumcheck::reduce(merlin, n, *X + Y);
-        let [f_folded]: [G::ScalarField; 1] = merlin.next_scalars().unwrap();
+
+        // Do a sumcheck for <x', a'G + G'> = X + Y
+        let (challenges, tensorcheck_claim) = crate::sumcheck::reduce(merlin, n, *X + Y);
+        let [X_folded_com]: [G; 1] = merlin.next_points().unwrap();
+
         let challenges_vec = crate::linalg::tensor(&challenges);
-        let w_folded = G::msm_unchecked(&w, &challenges_vec);
-        if w_folded * f_folded == reduced_claim {
-            Ok(())
-        } else {
-            Err(ProofError::InvalidProof)
-        }
+        let aG_folded = G::msm_unchecked(&vec_aG, &challenges_vec);
+
+        mul_verify(merlin, ck, X_folded_com, aG_folded, tensorcheck_claim).unwrap();
+
+        Ok(())
     }
 }
 
