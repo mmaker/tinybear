@@ -19,7 +19,7 @@ mod registry;
 /// Core sigma protocols sub-protocols.
 pub mod sigma;
 /// Core sumcheck sub-protocol.
-mod sumcheck;
+pub mod sumcheck;
 /// Unit-tests.
 #[cfg(test)]
 mod tests;

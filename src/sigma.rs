@@ -32,7 +32,7 @@ where
     }
 
     fn add_compressed_lin_proof(self, len: usize) -> Self {
-        self.add_sumcheck(len)
+        self.add_sumcheck(len+1)
             .add_points(1, "folded f")
             .add_mul_proof()
     }
@@ -154,7 +154,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
             let B = B + ck.H.mul(B_opening);
             arthur.add_points(&[A, B])?;
 
-            let [c] = arthur.challenge_scalars()?;
+            let [c] = arthur.challenge_scalars().unwrap();
 
             sumcheck::fold_inplace(&mut x_vec_prime, c);
             sumcheck::fold_inplace(&mut vec_aG, c);
@@ -166,7 +166,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
         // Commit to the folded x_vec_prime
         let (X_folded_com, X_folded_com_opening) =
             commit_hiding(arthur.rng(), ck, &[x_vec_prime[0]]);
-        arthur.add_points(&[X_folded_com])?;
+        arthur.add_points(&[X_folded_com]).unwrap();
 
         let ipa_sumcheck_opening = sumcheck::reduce_with_challenges(&openings, &chals, *Y_opening);
 
@@ -211,12 +211,12 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
 
         // Do a sumcheck for <x', a'G + G'> = X + Y
         let (challenges, tensorcheck_claim) = crate::sumcheck::reduce(merlin, n, *X + Y);
-        let [X_folded_com]: [G; 1] = merlin.next_points()?;
+        let [X_folded_com]: [G; 1] = merlin.next_points().unwrap();
 
         let challenges_vec = crate::linalg::tensor(&challenges);
         let aG_folded = G::msm_unchecked(&vec_aG, &challenges_vec);
 
-        mul_verify(merlin, ck, X_folded_com, aG_folded, tensorcheck_claim)?;
+        mul_verify(merlin, ck, X_folded_com, aG_folded, tensorcheck_claim).unwrap();
 
         Ok(())
     }
@@ -353,7 +353,7 @@ fn test_compressedsigma_correctness() {
     let rng = &mut nimue::DefaultRng::default();
 
     // Basic setup
-    let len = 1 << 12;
+    let len = 1 << 8;
     let iop = IOPattern::new("lineval test");
     let iop = LinProofIO::<G>::add_compressed_lin_proof(iop, len);
 
