@@ -10,6 +10,7 @@ use nimue::{DuplexHash, ProofError, ProofResult};
 
 use crate::pedersen::commit_hiding;
 use crate::pedersen::CommitmentKey;
+use crate::sumcheck;
 use crate::traits::MulProofIO;
 use crate::traits::{LinProof, LinProofIO};
 use crate::{linalg, SumcheckIO};
@@ -127,49 +128,58 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
         debug_assert!(n <= ck.vec_G.len());
         let mut G_vec_prime = ck.vec_G[..n].to_vec();
         G_vec_prime.push(ck.H);
-        assert!(x_vec_prime.len() == G_vec_prime.len());
+        assert_eq!(x_vec_prime.len(), G_vec_prime.len());
 
         // vec_a_prime = [a_1, ..., a_n, 0]
         let mut a_vec_prime = a_vec.to_vec();
         a_vec_prime.push(G::ScalarField::zero());
-        assert!(x_vec_prime.len() == a_vec_prime.len());
+        assert_eq!(x_vec_prime.len(), a_vec_prime.len());
+        let aG_vec_prime = ck.G.into().batch_mul(&a_vec_prime);
 
         // Compute <a' + G'>
-        let mut vec_aG = ark_std::cfg_iter!(a_vec_prime)
+        let mut vec_aG = ark_std::cfg_iter!(aG_vec_prime)
             .zip(G_vec_prime.iter())
-            .map(|(a, G_i)| ck.G * a + G_i)
+            .map(|(&aG, G_i)| aG + G_i)
             .collect::<Vec<G>>();
 
         // Show that <x', a' + G'> = Y + X
         let mut openings = Vec::new();
-        let mut chals  = Vec::new();
+        let mut chals = Vec::new();
         while vec_aG.len() + x_vec_prime.len() > 2 {
-            let [A, B] = crate::sumcheck::round_message(&x_vec_prime, &vec_aG);
+            let [A, B] = sumcheck::round_message(&x_vec_prime, &vec_aG);
             let A_opening = G::ScalarField::rand(arthur.rng());
             let B_opening = G::ScalarField::rand(arthur.rng());
             // Blind A and B
             let A = A + ck.H.mul(A_opening);
             let B = B + ck.H.mul(B_opening);
-            arthur.add_points(&[A, B]).unwrap();
+            arthur.add_points(&[A, B])?;
 
-            let [c] = arthur.challenge_scalars().unwrap();
-            crate::sumcheck::fold_inplace(&mut x_vec_prime, c);
-            crate::sumcheck::fold_inplace(&mut vec_aG, c);
+            let [c] = arthur.challenge_scalars()?;
+            sumcheck::fold_inplace(&mut x_vec_prime, c);
+            sumcheck::fold_inplace(&mut vec_aG, c);
 
             chals.push(c);
             openings.push([A_opening, B_opening]);
         }
 
         // Commit to the folded x_vec_prime
-        let (X_folded_com, X_folded_com_opening) = commit_hiding(arthur.rng(), ck, &[x_vec_prime[0]]);
-        arthur.add_points(&[X_folded_com]).unwrap();
+        let (X_folded_com, X_folded_com_opening) =
+            commit_hiding(arthur.rng(), ck, &[x_vec_prime[0]]);
+        arthur.add_points(&[X_folded_com])?;
 
-        let ipa_sumcheck_opening =
-            crate::sumcheck::reduce_with_challenges(&openings, &chals, *Y_opening);
+        let ipa_sumcheck_opening = sumcheck::reduce_with_challenges(&openings, &chals, *Y_opening);
 
         // Create a mul proof that v_0 * W_0 = Y'
         // where Y' is the tensorcheck claim
-        mul_prove(arthur, &ck, x_vec_prime[0], vec_aG[0], X_folded_com_opening, G::ScalarField::zero(), ipa_sumcheck_opening).unwrap();
+        mul_prove(
+            arthur,
+            &ck,
+            x_vec_prime[0],
+            vec_aG[0],
+            X_folded_com_opening,
+            G::ScalarField::zero(),
+            ipa_sumcheck_opening,
+        )?;
 
         Ok(arthur.transcript())
     }
@@ -200,12 +210,12 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
 
         // Do a sumcheck for <x', a'G + G'> = X + Y
         let (challenges, tensorcheck_claim) = crate::sumcheck::reduce(merlin, n, *X + Y);
-        let [X_folded_com]: [G; 1] = merlin.next_points().unwrap();
+        let [X_folded_com]: [G; 1] = merlin.next_points()?;
 
         let challenges_vec = crate::linalg::tensor(&challenges);
         let aG_folded = G::msm_unchecked(&vec_aG, &challenges_vec);
 
-        mul_verify(merlin, ck, X_folded_com, aG_folded, tensorcheck_claim).unwrap();
+        mul_verify(merlin, ck, X_folded_com, aG_folded, tensorcheck_claim)?;
 
         Ok(())
     }
