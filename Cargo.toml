@@ -35,3 +35,7 @@ name = "bench_prove"
 [[bench]]
 harness = false
 name = "bench_aes"
+
+[[bench]]
+harness = false
+name = "bench_linproof"

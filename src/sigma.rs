@@ -155,6 +155,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
             arthur.add_points(&[A, B])?;
 
             let [c] = arthur.challenge_scalars()?;
+
             sumcheck::fold_inplace(&mut x_vec_prime, c);
             sumcheck::fold_inplace(&mut vec_aG, c);
 
@@ -352,13 +353,13 @@ fn test_compressedsigma_correctness() {
     let rng = &mut nimue::DefaultRng::default();
 
     // Basic setup
-    let len = (1 << 8) - 13;
+    let len = 1 << 12;
     let iop = IOPattern::new("lineval test");
     let iop = LinProofIO::<G>::add_compressed_lin_proof(iop, len);
 
     let mut arthur = iop.to_arthur();
 
-    let ck = pedersen::setup::<G>(rng, 2084);
+    let ck = pedersen::setup::<G>(rng, len);
     // Linear evaluation setup
     let a_vec = (0..len).map(|_| F::rand(arthur.rng())).collect::<Vec<_>>();
     let x_vec = (0..len).map(|_| F::rand(arthur.rng())).collect::<Vec<_>>();
@@ -372,6 +373,6 @@ fn test_compressedsigma_correctness() {
     assert!(proof_result.is_ok());
     let proof = proof_result.unwrap();
 
-    let mut transcript_v = iop.to_merlin(proof);
-    assert!(CompressedSigma::verify(&mut transcript_v, &ck, &a_vec, &X, &Y).is_ok());
+    let mut merlin = iop.to_merlin(proof);
+    assert!(CompressedSigma::verify(&mut merlin, &ck, &a_vec, &X, &Y).is_ok());
 }

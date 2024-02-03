@@ -17,7 +17,7 @@ mod prover;
 /// Helper module for the prover and verifier.
 mod registry;
 /// Core sigma protocols sub-protocols.
-mod sigma;
+pub mod sigma;
 /// Core sumcheck sub-protocol.
 mod sumcheck;
 /// Unit-tests.
