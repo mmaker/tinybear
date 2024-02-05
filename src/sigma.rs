@@ -192,11 +192,9 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
         X: &G,
         Y: &G,
     ) -> ProofResult<()> {
-        let n = a_vec.len();
-
         // vec_G_prime = [G_1, ..., G_n, H]
-        debug_assert!(n <= ck.vec_G.len());
-        let mut G_vec_prime = ck.vec_G[..n].to_vec();
+        debug_assert!(a_vec.len() <= ck.vec_G.len());
+        let mut G_vec_prime = ck.vec_G[..a_vec.len()].to_vec();
         G_vec_prime.push(ck.H);
 
         // vec_a_prime = [a_1, ..., a_n, 0]
@@ -210,7 +208,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
             .collect::<Vec<_>>();
 
         // Do a sumcheck for <x', a'G + G'> = X + Y
-        let (challenges, tensorcheck_claim) = crate::sumcheck::reduce(merlin, n, *X + Y);
+        let (challenges, tensorcheck_claim) = crate::sumcheck::reduce(merlin, a_vec_prime.len(), *X + Y);
         let [X_folded_com]: [G; 1] = merlin.next_points().unwrap();
 
         let challenges_vec = crate::linalg::tensor(&challenges);
