@@ -1,5 +1,8 @@
+use std::ops::Mul;
 use ark_ec::CurveGroup;
 use ark_ff::AdditiveGroup;
+use ark_ff::Zero;
+use ark_ec::AffineRepr;
 use ark_ff::{Field, PrimeField};
 use nimue::plugins::ark::*;
 use nimue::{Arthur, DuplexHash, IOPattern, Merlin};
@@ -23,12 +26,47 @@ where
     }
 }
 
+/// Helper function for when we are folding a vector of points with a vector of scalars
+pub fn group_fold_inplace<G: CurveGroup>(f: &mut Vec<G::Affine>, r: G::ScalarField) {
+    let half = (f.len() + 1) / 2;
+    for i in 0..half {
+        f[i] = (f[i * 2] + f.get(i * 2 + 1).unwrap_or(&G::Affine::zero()).mul(r)).into();
+    }
+    f.drain(half..);
+}
+
+
 pub fn fold_inplace<M: AdditiveGroup>(f: &mut Vec<M>, r: M::Scalar) {
     let half = (f.len() + 1) / 2;
     for i in 0..half {
         f[i] = f[i * 2] + *f.get(i * 2 + 1).unwrap_or(&M::zero()) * r;
     }
     f.drain(half..);
+}
+
+/// Helper function for when we are doing a sumcheck between a vector of points and a vector of scalars
+pub fn group_round_message<G: CurveGroup>(f: &[G::ScalarField], g: &[G::Affine]) -> [G; 2] {
+    let f_zero = G::ScalarField::zero();
+    let g_zero = G::Affine::zero();
+
+    let mut f_even = Vec::<G::ScalarField>::new();
+    let mut g_even = Vec::<G::Affine>::new();
+    let mut f_odd = Vec::<G::ScalarField>::new();
+    let mut g_odd = Vec::<G::Affine>::new();
+
+    for (f_pair, g_pair) in f.chunks(2).zip(g.chunks(2)) {
+        // The even part of the polynomial must always be unwrapped.
+        f_even.push(f_pair[0]);
+        g_even.push(g_pair[0]);
+        f_odd.push(*f_pair.get(1).unwrap_or(&f_zero));
+        g_odd.push(*g_pair.get(1).unwrap_or(&g_zero));
+
+    }
+
+    let a = G::msm_unchecked(&g_even, &f_even);
+    let b = G::msm_unchecked(&g_odd, &f_even) + G::msm_unchecked(&g_even, &f_odd);
+
+    [a, b]
 }
 
 pub fn round_message<F, G>(f: &[F], g: &[G]) -> [G; 2]

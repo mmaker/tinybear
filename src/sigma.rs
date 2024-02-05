@@ -137,16 +137,18 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
         let aG_vec_prime = ck.G.into().batch_mul(&a_vec_prime);
 
         // Compute <a' + G'>
-        let mut vec_aG = ark_std::cfg_iter!(aG_vec_prime)
+        let vec_aG_tmp = ark_std::cfg_iter!(aG_vec_prime)
             .zip(G_vec_prime.iter())
-            .map(|(&aG, G_i)| aG + G_i)
+            .map(|(&aG, G_i)| (aG + G_i))
             .collect::<Vec<G>>();
+        let mut vec_aG = G::normalize_batch(&vec_aG_tmp);
 
         // Show that <x', a' + G'> = Y + X
         let mut openings = Vec::new();
         let mut chals = Vec::new();
         while vec_aG.len() + x_vec_prime.len() > 2 {
-            let [A, B] = sumcheck::round_message(&x_vec_prime, &vec_aG);
+            let [A, B]: [G; 2] = sumcheck::group_round_message(&x_vec_prime, &vec_aG);
+
             let A_opening = G::ScalarField::rand(arthur.rng());
             let B_opening = G::ScalarField::rand(arthur.rng());
             // Blind A and B
@@ -157,7 +159,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
             let [c] = arthur.challenge_scalars().unwrap();
 
             sumcheck::fold_inplace(&mut x_vec_prime, c);
-            sumcheck::fold_inplace(&mut vec_aG, c);
+            sumcheck::group_fold_inplace::<G>(&mut vec_aG, c);
 
             chals.push(c);
             openings.push([A_opening, B_opening]);
@@ -176,7 +178,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
             arthur,
             &ck,
             x_vec_prime[0],
-            vec_aG[0],
+            vec_aG[0].into(),
             X_folded_com_opening,
             G::ScalarField::zero(),
             ipa_sumcheck_opening,
