@@ -50,7 +50,7 @@ where
 }
 
 pub fn mul_prove<'a, G: CurveGroup>(
-    arthur: &'a mut Arthur,
+    merlin: &'a mut Merlin,
     ck: &CommitmentKey<G>,
     a: G::ScalarField,
     B: G,
@@ -60,16 +60,16 @@ pub fn mul_prove<'a, G: CurveGroup>(
 ) -> ProofResult<&'a [u8]> {
     // Produce the commitment
     let vec_k = (0..3)
-        .map(|_| G::ScalarField::rand(arthur.rng()))
+        .map(|_| G::ScalarField::rand(merlin.rng()))
         .collect::<Vec<_>>();
     let K = vec![
         G::msm_unchecked(&[ck.G, ck.H], &vec_k[..2]),
         G::msm_unchecked(&[B.into(), ck.H], &[vec_k[0], vec_k[2]]),
     ];
-    arthur.add_points(&K)?;
+    merlin.add_points(&K)?;
 
     // Get challenges from verifier
-    let [c]: [G::ScalarField; 1] = arthur.challenge_scalars()?;
+    let [c]: [G::ScalarField; 1] = merlin.challenge_scalars()?;
     // Compute prover's response
     let vec_z = vec![
         vec_k[0] + c * a,
@@ -77,20 +77,20 @@ pub fn mul_prove<'a, G: CurveGroup>(
         vec_k[2] + c * (rho_c - a * rho_b),
     ];
 
-    arthur.add_scalars(&vec_z)?;
-    Ok(arthur.transcript())
+    merlin.add_scalars(&vec_z)?;
+    Ok(merlin.transcript())
 }
 
 pub fn mul_verify<G: CurveGroup>(
-    merlin: &mut Merlin,
+    arthur: &mut Arthur,
     ck: &CommitmentKey<G>,
     A: G,
     B: G,
     C: G,
 ) -> ProofResult<()> {
-    let commitment: [G; 2] = merlin.next_points()?;
-    let [c]: [G::ScalarField; 1] = merlin.challenge_scalars()?;
-    let response: [G::ScalarField; 3] = merlin.next_scalars()?;
+    let commitment: [G; 2] = arthur.next_points()?;
+    let [c]: [G::ScalarField; 1] = arthur.challenge_scalars()?;
+    let response: [G::ScalarField; 3] = arthur.next_scalars()?;
 
     if commitment[0] == G::msm_unchecked(&[(-A).into(), ck.G, ck.H], &[c, response[0], response[1]])
         && commitment[1]
@@ -110,7 +110,7 @@ pub struct CompressedSigma<G: CurveGroup>(Vec<[G; 2]>, G::ScalarField);
 
 impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
     fn new<'a>(
-        arthur: &'a mut Arthur,
+        merlin: &'a mut Merlin,
         ck: &CommitmentKey<G>,
         x_vec: &[G::ScalarField],
         X_opening: &G::ScalarField,
@@ -149,14 +149,14 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
         while vec_aG.len() + x_vec_prime.len() > 2 {
             let [A, B]: [G; 2] = sumcheck::group_round_message(&x_vec_prime, &vec_aG);
 
-            let A_opening = G::ScalarField::rand(arthur.rng());
-            let B_opening = G::ScalarField::rand(arthur.rng());
+            let A_opening = G::ScalarField::rand(merlin.rng());
+            let B_opening = G::ScalarField::rand(merlin.rng());
             // Blind A and B
             let A = A + ck.H.mul(A_opening);
             let B = B + ck.H.mul(B_opening);
-            arthur.add_points(&[A, B])?;
+            merlin.add_points(&[A, B])?;
 
-            let [c] = arthur.challenge_scalars().unwrap();
+            let [c] = merlin.challenge_scalars().unwrap();
 
             sumcheck::fold_inplace(&mut x_vec_prime, c);
             sumcheck::group_fold_inplace::<G>(&mut vec_aG, c);
@@ -167,15 +167,15 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
 
         // Commit to the folded x_vec_prime
         let (X_folded_com, X_folded_com_opening) =
-            commit_hiding(arthur.rng(), ck, &[x_vec_prime[0]]);
-        arthur.add_points(&[X_folded_com]).unwrap();
+            commit_hiding(merlin.rng(), ck, &[x_vec_prime[0]]);
+            merlin.add_points(&[X_folded_com]).unwrap();
 
         let ipa_sumcheck_opening = sumcheck::reduce_with_challenges(&openings, &chals, *Y_opening);
 
         // Create a mul proof that v_0 * W_0 = Y'
         // where Y' is the tensorcheck claim
         mul_prove(
-            arthur,
+            merlin,
             &ck,
             x_vec_prime[0],
             vec_aG[0].into(),
@@ -184,11 +184,11 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
             ipa_sumcheck_opening,
         )?;
 
-        Ok(arthur.transcript())
+        Ok(merlin.transcript())
     }
 
     fn verify(
-        merlin: &mut Merlin,
+        arthur: &mut Arthur,
         ck: &CommitmentKey<G>,
         a_vec: &[<G>::ScalarField],
         X: &G,
@@ -210,13 +210,13 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
             .collect::<Vec<_>>();
 
         // Do a sumcheck for <x', a'G + G'> = X + Y
-        let (challenges, tensorcheck_claim) = crate::sumcheck::reduce(merlin, a_vec_prime.len(), *X + Y);
-        let [X_folded_com]: [G; 1] = merlin.next_points().unwrap();
+        let (challenges, tensorcheck_claim) = crate::sumcheck::reduce(arthur, a_vec_prime.len(), *X + Y);
+        let [X_folded_com]: [G; 1] = arthur.next_points().unwrap();
 
         let challenges_vec = crate::linalg::tensor(&challenges);
         let aG_folded = G::msm_unchecked(&vec_aG, &challenges_vec);
 
-        mul_verify(merlin, ck, X_folded_com, aG_folded, tensorcheck_claim).unwrap();
+        mul_verify(arthur, ck, X_folded_com, aG_folded, tensorcheck_claim).unwrap();
 
         Ok(())
     }
@@ -224,7 +224,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
 
 impl<G: CurveGroup> LinProof<G> for SigmaProof<G> {
     fn new<'a>(
-        arthur: &'a mut Arthur,
+        merlin: &'a mut Merlin,
         ck: &CommitmentKey<G>,
         x_vec: &[G::ScalarField],
         X_opening: &G::ScalarField,
@@ -234,30 +234,30 @@ impl<G: CurveGroup> LinProof<G> for SigmaProof<G> {
         assert!(x_vec.len() <= a_vec.len());
         // Create the prover's opening
         let mut vec_k = (0..a_vec.len())
-            .map(|_| G::ScalarField::rand(arthur.rng()))
+            .map(|_| G::ScalarField::rand(merlin.rng()))
             .collect::<Vec<_>>();
 
         // Commit to the opening and send the commitments to the verifier
         let y_k = linalg::inner_product(&vec_k, a_vec);
-        let (K_1, kappa_1) = commit_hiding(arthur.rng(), ck, &vec_k);
-        let (K_2, kappa_2) = commit_hiding(arthur.rng(), ck, &[y_k]);
+        let (K_1, kappa_1) = commit_hiding(merlin.rng(), ck, &vec_k);
+        let (K_2, kappa_2) = commit_hiding(merlin.rng(), ck, &[y_k]);
         vec_k.extend_from_slice(&[kappa_1, kappa_2]);
-        arthur.add_points(&[K_1, K_2])?;
+        merlin.add_points(&[K_1, K_2])?;
 
         // Get challenges from verifier
-        let [c]: [G::ScalarField; 1] = arthur.challenge_scalars()?;
+        let [c]: [G::ScalarField; 1] = merlin.challenge_scalars()?;
         // Compute prover's response
         let witness = x_vec.iter().chain(Some(X_opening)).chain(Some(Y_opening));
 
         for (k_i, w_i) in vec_k.into_iter().zip(witness) {
             let z_i = k_i + c * w_i;
-            arthur.add_scalars(&[z_i])?;
+            merlin.add_scalars(&[z_i])?;
         }
-        Ok(arthur.transcript())
+        Ok(merlin.transcript())
     }
 
     fn verify(
-        merlin: &mut Merlin,
+        arthur: &mut Arthur,
         ck: &CommitmentKey<G>,
         a_vec: &[G::ScalarField],
         X: &G,
@@ -265,12 +265,12 @@ impl<G: CurveGroup> LinProof<G> for SigmaProof<G> {
     ) -> ProofResult<()> {
         let n = a_vec.len();
 
-        let commitment: [G; 2] = merlin.next_points::<2>()?;
+        let commitment: [G; 2] = arthur.next_points::<2>()?;
         // Get challenges from verifier
-        let [c]: [G::ScalarField; 1] = merlin.challenge_scalars()?;
+        let [c]: [G::ScalarField; 1] = arthur.challenge_scalars()?;
 
         let mut response = vec![G::ScalarField::zero(); n + 2];
-        merlin.fill_next_scalars(&mut response)?;
+        arthur.fill_next_scalars(&mut response)?;
 
         let z_response = G::msm_unchecked(&ck.vec_G[..n], &response[..n]) + ck.H * response[n];
         let za_response =
@@ -303,12 +303,12 @@ fn test_mul() {
 
     let iop = IOPattern::new("test");
     let iop = MulProofIO::<G>::add_mul_proof(iop);
-    let mut arthur = iop.to_arthur();
-    let proof_result = mul_prove(&mut arthur, &ck, a, B, rho_a, rho_b, rho_c);
+    let mut merlin = iop.to_merlin();
+    let proof_result = mul_prove(&mut merlin, &ck, a, B, rho_a, rho_b, rho_c);
     assert!(proof_result.is_ok());
     let proof = proof_result.unwrap();
-    let mut merlin = iop.to_merlin(proof);
-    let result = mul_verify(&mut merlin, &ck, A, B, C);
+    let mut arthur = iop.to_arthur(proof);
+    let result = mul_verify(&mut arthur, &ck, A, B, C);
     assert!(result.is_ok());
 }
 
@@ -325,7 +325,7 @@ fn test_lineval_correctness() {
     let iop = IOPattern::new("lineval test");
     let iop = LinProofIO::<G>::add_lin_proof(iop, len);
 
-    let mut arthur = iop.to_arthur();
+    let mut merlin = iop.to_merlin();
 
     let ck = pedersen::setup::<G>(rng, 2084);
     // Linear evaluation setup
@@ -336,11 +336,11 @@ fn test_lineval_correctness() {
     let (Y, Y_opening) = pedersen::commit_hiding(rng, &ck, &[y]);
 
     // Let's prove!
-    let proof_result = SigmaProof::new(&mut arthur, &ck, &x_vec, &X_opening, &Y_opening, &a_vec);
+    let proof_result = SigmaProof::new(&mut merlin, &ck, &x_vec, &X_opening, &Y_opening, &a_vec);
     assert!(proof_result.is_ok());
     let proof = proof_result.unwrap();
 
-    let mut transcript_v = iop.to_merlin(proof);
+    let mut transcript_v = iop.to_arthur(proof);
     assert!(SigmaProof::verify(&mut transcript_v, &ck, &a_vec, &X, &Y).is_ok());
 }
 
@@ -357,22 +357,22 @@ fn test_compressedsigma_correctness() {
     let iop = IOPattern::new("lineval test");
     let iop = LinProofIO::<G>::add_compressed_lin_proof(iop, len);
 
-    let mut arthur = iop.to_arthur();
+    let mut merlin = iop.to_merlin();
 
     let ck = pedersen::setup::<G>(rng, len);
     // Linear evaluation setup
-    let a_vec = (0..len).map(|_| F::rand(arthur.rng())).collect::<Vec<_>>();
-    let x_vec = (0..len).map(|_| F::rand(arthur.rng())).collect::<Vec<_>>();
+    let a_vec = (0..len).map(|_| F::rand(merlin.rng())).collect::<Vec<_>>();
+    let x_vec = (0..len).map(|_| F::rand(merlin.rng())).collect::<Vec<_>>();
     let (X, X_opening) = pedersen::commit_hiding(rng, &ck, &x_vec);
     let y = linalg::inner_product(&x_vec, &a_vec);
     let (Y, Y_opening) = pedersen::commit_hiding(rng, &ck, &[y]);
 
     // Let's prove!
     let proof_result =
-        CompressedSigma::new(&mut arthur, &ck, &x_vec, &X_opening, &Y_opening, &a_vec);
+        CompressedSigma::new(&mut merlin, &ck, &x_vec, &X_opening, &Y_opening, &a_vec);
     assert!(proof_result.is_ok());
     let proof = proof_result.unwrap();
 
-    let mut merlin = iop.to_merlin(proof);
-    assert!(CompressedSigma::verify(&mut merlin, &ck, &a_vec, &X, &Y).is_ok());
+    let mut arthur = iop.to_arthur(proof);
+    assert!(CompressedSigma::verify(&mut arthur, &ck, &a_vec, &X, &Y).is_ok());
 }

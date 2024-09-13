@@ -2,6 +2,8 @@ use ark_ff::Field;
 
 use crate::aes;
 
+//In paper frequencies is the vector M
+
 /// Counts the occurrences of 16-bit tuples in the given witness.
 ///
 /// This function increases counters in the `dst` array for each occurrence of the 4-bit slices of `x` and `y` found in

@@ -105,7 +105,7 @@ pub fn reduce_with_challenges<G: AdditiveGroup>(
     claim
 }
 
-pub fn reduce<G>(merlin: &mut Merlin, n: usize, claim: G) -> (Vec<G::Scalar>, G)
+pub fn reduce<G>(arthur: &mut Arthur, n: usize, claim: G) -> (Vec<G::Scalar>, G)
 where
     G: CurveGroup,
     G::Scalar: PrimeField,
@@ -115,10 +115,10 @@ where
     let mut messages = Vec::with_capacity(logn);
     // reduce to a subclaim using the prover's messages.
     for _ in 0..logn {
-        let [a, b] = merlin.next_points().unwrap();
+        let [a, b] = arthur.next_points().unwrap();
         messages.push([a, b]);
         // compute the next challenge from the previous coefficients.
-        let [r] = merlin.challenge_scalars().unwrap();
+        let [r] = arthur.challenge_scalars().unwrap();
         challenges.push(r);
     }
     let claim = reduce_with_challenges(&messages, &challenges, claim);
@@ -145,7 +145,7 @@ impl<F: Field> Claim<F> {
 /// Prove the inner product <v, w> using a sumcheck
 #[allow(non_snake_case)]
 pub fn batch_sumcheck<G: CurveGroup, const N: usize>(
-    arthur: &mut Arthur,
+    merlin: &mut Merlin,
     ck: &CommitmentKey<G>,
     claims: &mut [Claim<G::ScalarField>; N],
     challenges: &[G::Scalar],
@@ -164,10 +164,10 @@ pub fn batch_sumcheck<G: CurveGroup, const N: usize>(
             b += claim_b * challenge;
         }
 
-        let (A, a_opening) = pedersen::commit_hiding(arthur.rng(), ck, &[a]);
-        let (B, b_opening) = pedersen::commit_hiding(arthur.rng(), ck, &[b]);
-        arthur.add_points(&[A, B]).unwrap();
-        let [c] = arthur.challenge_scalars().unwrap();
+        let (A, a_opening) = pedersen::commit_hiding(merlin.rng(), ck, &[a]);
+        let (B, b_opening) = pedersen::commit_hiding(merlin.rng(), ck, &[b]);
+        merlin.add_points(&[A, B]).unwrap();
+        let [c] = merlin.challenge_scalars().unwrap();
 
         claims.iter_mut().for_each(|claim| claim.fold(c));
 
@@ -181,7 +181,7 @@ pub fn batch_sumcheck<G: CurveGroup, const N: usize>(
 /// Prove the inner product <v, w> using a sumcheck
 #[allow(non_snake_case)]
 pub fn sumcheck<G: CurveGroup>(
-    arthur: &mut Arthur,
+    merlin: &mut Merlin,
     ck: &CommitmentKey<G>,
     v: &[G::ScalarField],
     w: &[G::ScalarField],
@@ -198,11 +198,11 @@ pub fn sumcheck<G: CurveGroup>(
     while w.len() + v.len() > 2 {
         let [a, b] = round_message(&v, &w);
 
-        let (A, a_opening) = pedersen::commit_hiding(arthur.rng(), ck, &[a]);
-        let (B, b_opening) = pedersen::commit_hiding(arthur.rng(), ck, &[b]);
+        let (A, a_opening) = pedersen::commit_hiding(merlin.rng(), ck, &[a]);
+        let (B, b_opening) = pedersen::commit_hiding(merlin.rng(), ck, &[b]);
 
-        arthur.add_points(&[A, B]).unwrap();
-        let [c] = arthur.challenge_scalars().unwrap();
+        merlin.add_points(&[A, B]).unwrap();
+        let [c] = merlin.challenge_scalars().unwrap();
         fold_inplace(&mut v, c);
         fold_inplace(&mut w, c);
 
@@ -228,16 +228,16 @@ fn test_sumcheck() {
 
     let iop = IOPattern::new("sumcheck");
     let iop = SumcheckIO::<G>::add_sumcheck(iop, 16);
-    let mut arthur = iop.to_arthur();
+    let mut merlin = iop.to_merlin();
     // Prover side of sumcheck
-    let (expected_chals, openings, final_foldings) = sumcheck(&mut arthur, &ck, &v[..], &w[..]);
+    let (expected_chals, openings, final_foldings) = sumcheck(&mut merlin, &ck, &v[..], &w[..]);
 
     ip_opening = reduce_with_challenges(&openings, &expected_chals[..], ip_opening);
     // Verifier side:
 
     // Get sumcheck random challenges and tensorcheck claim (random evaluation claim)
-    let mut merlin = iop.to_merlin(arthur.transcript());
-    let (challenges, tensorcheck_claim) = reduce(&mut merlin, 16, ip_com);
+    let mut arthur = iop.to_arthur(merlin.transcript());
+    let (challenges, tensorcheck_claim) = reduce(&mut arthur, 16, ip_com);
     assert_eq!(challenges, expected_chals);
     assert_eq!(
         ck.G * final_foldings.0 * final_foldings.1 + ck.H * ip_opening,
