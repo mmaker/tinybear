@@ -47,7 +47,7 @@ pub trait LinProof<G: CurveGroup> {
     /// phi is blinder of vec_x
     /// psi is blinder of y
     fn new<'a>(
-        arthur: &'a mut Arthur,
+        merlin: &'a mut Merlin,
         ck: &CommitmentKey<G>,
         x_vec: &[G::ScalarField],
         X_opening: &G::ScalarField,
@@ -57,7 +57,7 @@ pub trait LinProof<G: CurveGroup> {
 
     /// Verify a proof that given commitment X, its opening x has: <x, a> = y
     fn verify(
-        merlin: &mut Merlin,
+        arthur: &mut Arthur,
         ck: &CommitmentKey<G>,
         a_vec: &[G::ScalarField],
         X: &G,
@@ -67,10 +67,12 @@ pub trait LinProof<G: CurveGroup> {
 
 pub trait Instance<G: CurveGroup> {
     fn needles_len(&self) -> usize;
+    //Double check if this needs to be changed
     fn witness_len(&self) -> usize;
 
     fn full_witness_com(&self, w_com: &G) -> G;
 
+    //This will likely also need to be changed
     fn trace_to_needles_map(
         &self,
         src: &[G::ScalarField],
