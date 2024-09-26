@@ -105,7 +105,7 @@ fn test_aes256() {
     );
     assert!(
         result.is_ok(),
-        "Proof veirification fails with {}",
+        "Proof verification fails with {}",
         result.unwrap_err()
     );
 }

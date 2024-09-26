@@ -114,7 +114,7 @@ impl<F: Field, const R: usize, const N: usize> Witness<F> for AesKeySchWitness<F
         [c_xor, c_xor2, c_sbox, _c_rj2]: [F; 4],
     ) -> (Vec<F>, Vec<F>, Vec<u8>) {
         let witness_s_box = self.get_s_box_witness();
-        //This will need to chang since we'll have an additional xor 
+
         let witness_xor = self.get_xor_witness();
         let s_box_needles = lookup::compute_u8_needles(&witness_s_box, c_sbox);
         let xor_needles = lookup::compute_u16_needles(&witness_xor, [c_xor, c_xor2]);
@@ -260,10 +260,7 @@ impl<F: Field, const R: usize, const N: usize> AesCipherWitness<F, R, N> {
             let new_witness = xs.zip(zs).map(|(x, z)| (x, x ^ z, z));
             witness_xor.extend(new_witness);
         }
-        //Plaintext XOR 
-        //Need to remember where the plaintext is 
-        //This will also affect the frequencies table 
-        //(plaintext, enc_ctr, XOR )
+
         witness_xor
     }
 
@@ -398,7 +395,7 @@ where
     // there are as many frequencies as elements in the haystack
     debug_assert_eq!(h_vec.len(), m_u8.len());
     // all needles are in the haystack
-    assert!(f_vec.iter().all(|x| t_vec.contains(x)));
+    debug_assert!(f_vec.iter().all(|x| t_vec.contains(x)));
     // Send (Q,Y)
     merlin.add_points(&[Q, Y]).unwrap();
 
