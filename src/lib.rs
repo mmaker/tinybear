@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
-/// Basic AES implementation.
-pub mod aes;
+pub mod witness;
+
 /// AES keyschedule and cipher constraints.
 mod constrain;
 /// Interface functions publicly exposed.
@@ -14,8 +14,6 @@ mod lookup;
 pub mod pedersen;
 /// Prover module.
 mod prover;
-/// Helper module for the prover and verifier.
-mod registry;
 /// Core sigma protocols sub-protocols.
 pub mod sigma;
 /// Core sumcheck sub-protocol.
@@ -27,7 +25,7 @@ mod tests;
 #[allow(non_snake_case)]
 mod traits;
 /// Fast MSM for u8 scalar elements.
-mod u8msm;
+mod umsm;
 /// Verifier module.
 mod verifier;
 

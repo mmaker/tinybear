@@ -7,7 +7,7 @@ use nimue::{Arthur, Merlin};
 use nimue::{DuplexHash, ProofResult};
 
 use crate::pedersen::CommitmentKey;
-use crate::registry;
+use crate::witness::registry;
 
 pub trait TinybearIO<G: CurveGroup>: SumcheckIO<G> + MulProofIO<G> + LinProofIO<G> + Sized {
     fn add_aes_statement(self) -> Self;
@@ -47,7 +47,7 @@ pub trait LinProof<G: CurveGroup> {
     /// phi is blinder of vec_x
     /// psi is blinder of y
     fn new<'a>(
-        arthur: &'a mut Arthur,
+        merlin: &'a mut Merlin,
         ck: &CommitmentKey<G>,
         x_vec: &[G::ScalarField],
         X_opening: &G::ScalarField,
@@ -57,7 +57,7 @@ pub trait LinProof<G: CurveGroup> {
 
     /// Verify a proof that given commitment X, its opening x has: <x, a> = y
     fn verify(
-        merlin: &mut Merlin,
+        arthur: &mut Arthur,
         ck: &CommitmentKey<G>,
         a_vec: &[G::ScalarField],
         X: &G,
@@ -67,10 +67,12 @@ pub trait LinProof<G: CurveGroup> {
 
 pub trait Instance<G: CurveGroup> {
     fn needles_len(&self) -> usize;
+    //Double check if this needs to be changed
     fn witness_len(&self) -> usize;
 
     fn full_witness_com(&self, w_com: &G) -> G;
 
+    //This will likely also need to be changed
     fn trace_to_needles_map(
         &self,
         src: &[G::ScalarField],
@@ -80,11 +82,23 @@ pub trait Instance<G: CurveGroup> {
 
 pub trait Witness<F: Field> {
     fn witness_vec(&self) -> &[u8];
-
     fn needles_len(&self) -> usize;
     /// Compute needles and frequencies
     /// Return (needles, frequencies, frequencies_u8)
-    fn compute_needles_and_frequencies(&self, r: [F; 4]) -> (Vec<F>, Vec<F>, Vec<u8>);
+    fn compute_needles_and_frequencies(&self, r: [F; 4]) -> (Vec<F>, Vec<F>, Vec<u64>);
+    fn trace_to_needles_map(&self, src: &[F], r: [F; 4]) -> (Vec<F>, F);
+    /// The full witness, aka vector z in the scheme,
+    /// is the concatenation of the public and private information.
+    fn full_witness(&self) -> Vec<F>;
+    /// The full witness opening is the opening of
+    fn full_witness_opening(&self) -> F;
+}
+
+pub trait MultiBlockWitness<F: Field> {
+    fn needles_len(&self) -> usize;
+    /// Compute needles and frequencies
+    /// Return (needles, frequencies, frequencies_u8)
+    fn compute_needles_and_frequencies(&self, r: [F; 4]) -> (Vec<F>, Vec<F>, Vec<u64>);
     fn trace_to_needles_map(&self, src: &[F], r: [F; 4]) -> (Vec<F>, F);
     /// The full witness, aka vector z in the scheme,
     /// is the concatenation of the public and private information.

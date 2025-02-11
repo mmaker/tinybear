@@ -1,3 +1,4 @@
 rustc-ice-*
 /target
 /Cargo.lock
+.DS_Store

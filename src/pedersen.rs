@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 use std::ops::Mul;
 
-use super::u8msm;
+use super::umsm;
 use ark_ec::CurveGroup;
 use ark_std::UniformRand;
 use rand::{CryptoRng, RngCore};
@@ -39,11 +39,12 @@ pub fn commit_hiding<G: CurveGroup>(
     };
     (C, blinder)
 }
-
+//Modify the msm and update
 pub fn commit_u8<G: CurveGroup>(ck: &CommitmentKey<G>, u8scalars: &[u8]) -> G {
-    u8msm::u8msm(&ck.vec_G, u8scalars)
+    umsm::u8msm(&ck.vec_G, u8scalars)
 }
 
+//modify the msm and update
 pub fn commit_hiding_u8<G: CurveGroup>(
     csrng: &mut (impl RngCore + CryptoRng),
     ck: &CommitmentKey<G>,
@@ -53,7 +54,27 @@ pub fn commit_hiding_u8<G: CurveGroup>(
     let C = if u8scalars.len() == 1 {
         ck.G.mul(G::ScalarField::from(u8scalars[0])) + ck.H.mul(blinder)
     } else {
-        u8msm::u8msm::<G>(&ck.vec_G, u8scalars) + ck.H.mul(blinder)
+        umsm::u8msm::<G>(&ck.vec_G, u8scalars) + ck.H.mul(blinder)
+    };
+    (C, blinder)
+}
+
+//Modify the msm and update
+pub fn commit_u64<G: CurveGroup>(ck: &CommitmentKey<G>, u64scalars: &[u64]) -> G {
+    umsm::u64msm(&ck.vec_G, u64scalars)
+}
+
+//modify the msm and update
+pub fn commit_hiding_u64<G: CurveGroup>(
+    csrng: &mut (impl RngCore + CryptoRng),
+    ck: &CommitmentKey<G>,
+    u64scalars: &[u64],
+) -> (G, G::ScalarField) {
+    let blinder = G::ScalarField::rand(csrng);
+    let C = if u64scalars.len() == 1 {
+        ck.G.mul(G::ScalarField::from(u64scalars[0])) + ck.H.mul(blinder)
+    } else {
+        umsm::u64msm::<G>(&ck.vec_G, u64scalars) + ck.H.mul(blinder)
     };
     (C, blinder)
 }

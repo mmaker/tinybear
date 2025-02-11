@@ -22,11 +22,13 @@ ark-std = {version="0.4.0", features=["std", "getrandom"]}
 nimue = {git="https://github.com/arkworks-rs/nimue.git", features = ["ark"] }
 rand = "0.8.5"
 rand_chacha = "0.3.1"
+hex-literal = "0.4"
 
 [dev-dependencies]
 ark-curve25519 = "0.4.0"
 criterion = "0.5.1"
 hex = "0.4.3"
+
 
 [[bench]]
 harness = false

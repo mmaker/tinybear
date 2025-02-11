@@ -1,8 +1,11 @@
+use ark_ec::AffineRepr;
 use ark_ec::CurveGroup;
 use ark_ff::AdditiveGroup;
+use ark_ff::Zero;
 use ark_ff::{Field, PrimeField};
 use nimue::plugins::ark::*;
 use nimue::{Arthur, DuplexHash, IOPattern, Merlin};
+use std::ops::Mul;
 
 use crate::pedersen::{self, CommitmentKey};
 use crate::traits::SumcheckIO;
@@ -23,12 +26,45 @@ where
     }
 }
 
+/// Helper function for when we are folding a vector of points with a vector of scalars
+pub fn group_fold_inplace<G: CurveGroup>(f: &mut Vec<G::Affine>, r: G::ScalarField) {
+    let half = (f.len() + 1) / 2;
+    for i in 0..half {
+        f[i] = (f[i * 2] + f.get(i * 2 + 1).unwrap_or(&G::Affine::zero()).mul(r)).into();
+    }
+    f.drain(half..);
+}
+
 pub fn fold_inplace<M: AdditiveGroup>(f: &mut Vec<M>, r: M::Scalar) {
     let half = (f.len() + 1) / 2;
     for i in 0..half {
         f[i] = f[i * 2] + *f.get(i * 2 + 1).unwrap_or(&M::zero()) * r;
     }
     f.drain(half..);
+}
+
+/// Helper function for when we are doing a sumcheck between a vector of points and a vector of scalars
+pub fn group_round_message<G: CurveGroup>(f: &[G::ScalarField], g: &[G::Affine]) -> [G; 2] {
+    let f_zero = G::ScalarField::zero();
+    let g_zero = G::Affine::zero();
+
+    let mut f_even = Vec::<G::ScalarField>::new();
+    let mut g_even = Vec::<G::Affine>::new();
+    let mut f_odd = Vec::<G::ScalarField>::new();
+    let mut g_odd = Vec::<G::Affine>::new();
+
+    for (f_pair, g_pair) in f.chunks(2).zip(g.chunks(2)) {
+        // The even part of the polynomial must always be unwrapped.
+        f_even.push(f_pair[0]);
+        g_even.push(g_pair[0]);
+        f_odd.push(*f_pair.get(1).unwrap_or(&f_zero));
+        g_odd.push(*g_pair.get(1).unwrap_or(&g_zero));
+    }
+
+    let a = G::msm_unchecked(&g_even, &f_even);
+    let b = G::msm_unchecked(&g_odd, &f_even) + G::msm_unchecked(&g_even, &f_odd);
+
+    [a, b]
 }
 
 pub fn round_message<F, G>(f: &[F], g: &[G]) -> [G; 2]
@@ -67,7 +103,7 @@ pub fn reduce_with_challenges<G: AdditiveGroup>(
     claim
 }
 
-pub fn reduce<G>(merlin: &mut Merlin, n: usize, claim: G) -> (Vec<G::Scalar>, G)
+pub fn reduce<G>(arthur: &mut Arthur, n: usize, claim: G) -> (Vec<G::Scalar>, G)
 where
     G: CurveGroup,
     G::Scalar: PrimeField,
@@ -77,10 +113,10 @@ where
     let mut messages = Vec::with_capacity(logn);
     // reduce to a subclaim using the prover's messages.
     for _ in 0..logn {
-        let [a, b] = merlin.next_points().unwrap();
+        let [a, b] = arthur.next_points().unwrap();
         messages.push([a, b]);
         // compute the next challenge from the previous coefficients.
-        let [r] = merlin.challenge_scalars().unwrap();
+        let [r] = arthur.challenge_scalars().unwrap();
         challenges.push(r);
     }
     let claim = reduce_with_challenges(&messages, &challenges, claim);
@@ -107,7 +143,7 @@ impl<F: Field> Claim<F> {
 /// Prove the inner product <v, w> using a sumcheck
 #[allow(non_snake_case)]
 pub fn batch_sumcheck<G: CurveGroup, const N: usize>(
-    arthur: &mut Arthur,
+    merlin: &mut Merlin,
     ck: &CommitmentKey<G>,
     claims: &mut [Claim<G::ScalarField>; N],
     challenges: &[G::Scalar],
@@ -121,15 +157,15 @@ pub fn batch_sumcheck<G: CurveGroup, const N: usize>(
         let [mut a, mut b] = round_message(f, g);
         for (claim, challenge) in claims[1..].iter_mut().zip(challenges.iter()) {
             let Claim(f, g) = claim;
-            let [claim_a, claim_b] = round_message(&f, &g);
+            let [claim_a, claim_b] = round_message(f, g);
             a += claim_a * challenge;
             b += claim_b * challenge;
         }
 
-        let (A, a_opening) = pedersen::commit_hiding(arthur.rng(), ck, &[a]);
-        let (B, b_opening) = pedersen::commit_hiding(arthur.rng(), ck, &[b]);
-        arthur.add_points(&[A, B]).unwrap();
-        let [c] = arthur.challenge_scalars().unwrap();
+        let (A, a_opening) = pedersen::commit_hiding(merlin.rng(), ck, &[a]);
+        let (B, b_opening) = pedersen::commit_hiding(merlin.rng(), ck, &[b]);
+        merlin.add_points(&[A, B]).unwrap();
+        let [c] = merlin.challenge_scalars().unwrap();
 
         claims.iter_mut().for_each(|claim| claim.fold(c));
 
@@ -143,7 +179,7 @@ pub fn batch_sumcheck<G: CurveGroup, const N: usize>(
 /// Prove the inner product <v, w> using a sumcheck
 #[allow(non_snake_case)]
 pub fn sumcheck<G: CurveGroup>(
-    arthur: &mut Arthur,
+    merlin: &mut Merlin,
     ck: &CommitmentKey<G>,
     v: &[G::ScalarField],
     w: &[G::ScalarField],
@@ -160,11 +196,11 @@ pub fn sumcheck<G: CurveGroup>(
     while w.len() + v.len() > 2 {
         let [a, b] = round_message(&v, &w);
 
-        let (A, a_opening) = pedersen::commit_hiding(arthur.rng(), ck, &[a]);
-        let (B, b_opening) = pedersen::commit_hiding(arthur.rng(), ck, &[b]);
+        let (A, a_opening) = pedersen::commit_hiding(merlin.rng(), ck, &[a]);
+        let (B, b_opening) = pedersen::commit_hiding(merlin.rng(), ck, &[b]);
 
-        arthur.add_points(&[A, B]).unwrap();
-        let [c] = arthur.challenge_scalars().unwrap();
+        merlin.add_points(&[A, B]).unwrap();
+        let [c] = merlin.challenge_scalars().unwrap();
         fold_inplace(&mut v, c);
         fold_inplace(&mut w, c);
 
@@ -190,16 +226,16 @@ fn test_sumcheck() {
 
     let iop = IOPattern::new("sumcheck");
     let iop = SumcheckIO::<G>::add_sumcheck(iop, 16);
-    let mut arthur = iop.to_arthur();
+    let mut merlin = iop.to_merlin();
     // Prover side of sumcheck
-    let (expected_chals, openings, final_foldings) = sumcheck(&mut arthur, &ck, &v[..], &w[..]);
+    let (expected_chals, openings, final_foldings) = sumcheck(&mut merlin, &ck, &v[..], &w[..]);
 
     ip_opening = reduce_with_challenges(&openings, &expected_chals[..], ip_opening);
     // Verifier side:
 
     // Get sumcheck random challenges and tensorcheck claim (random evaluation claim)
-    let mut merlin = iop.to_merlin(arthur.transcript());
-    let (challenges, tensorcheck_claim) = reduce(&mut merlin, 16, ip_com);
+    let mut arthur = iop.to_arthur(merlin.transcript());
+    let (challenges, tensorcheck_claim) = reduce(&mut arthur, 16, ip_com);
     assert_eq!(challenges, expected_chals);
     assert_eq!(
         ck.G * final_foldings.0 * final_foldings.1 + ck.H * ip_opening,

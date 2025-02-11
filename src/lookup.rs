@@ -1,13 +1,15 @@
 use ark_ff::Field;
 
-use crate::aes;
+use crate::witness::trace::utils;
+
+//In paper frequencies is the vector M
 
 /// Counts the occurrences of 16-bit tuples in the given witness.
 ///
 /// This function increases counters in the `dst` array for each occurrence of the 4-bit slices of `x` and `y` found in
 /// the witness.
 pub fn count_u16_frequencies<'a>(
-    dst: &mut [u8],
+    dst: &mut [u64],
     witness: impl IntoIterator<Item = &'a (u8, u8, u8)>,
 ) {
     for &(x, y, _z) in witness {
@@ -21,7 +23,7 @@ pub fn count_u16_frequencies<'a>(
 /// Counts the occurrences of 8-bit values in the given witness.
 ///
 /// This function increases counters in the `dst` array for each occurrence of `x` found in the witness.
-pub fn count_u8_frequencies<'a>(dst: &mut [u8], witness: impl IntoIterator<Item = &'a (u8, u8)>) {
+pub fn count_u8_frequencies<'a>(dst: &mut [u64], witness: impl IntoIterator<Item = &'a (u8, u8)>) {
     for &(x, _y) in witness {
         dst[x as usize] += 1;
     }
@@ -72,38 +74,52 @@ pub fn compute_u16_needles<'a, F: Field>(
         .collect()
 }
 
+/// Lookup table for the AES s-box
+pub fn haystack_sbox<F: Field>(c_sbox: F) -> Vec<F> {
+    (0u8..=0xff)
+        .map(|i| {
+            let x = i;
+            let y = utils::SBOX[x as usize];
+            F::from(x) + c_sbox * F::from(y)
+        })
+        .collect()
+}
+
+/// Lookup table for the AES rj2
+pub fn haystack_rj2<F: Field>(c_rj2: F) -> Vec<F> {
+    (0u8..=0xff)
+        .map(|i| {
+            let x = i;
+            let y = utils::RJ2[x as usize];
+            F::from(x) + c_rj2 * F::from(y)
+        })
+        .collect()
+}
+
+/// Lookup table for the AES XOR
+pub fn haystack_xor<F: Field>(c: F, c2: F) -> Vec<F> {
+    (0u8..=0xff)
+        .map(|i| {
+            let x = i & 0x0f;
+            let y = i >> 4;
+            let z = x ^ y;
+            F::from(x) + c * F::from(y) + c2 * F::from(z)
+        })
+        .collect()
+}
+
 /// Compute the haystack table t
 pub fn compute_haystack<F: Field>(
     [r_xor, r2_xor, r_sbox, r_rj2]: [F; 4],
     lookup_challenge: F,
 ) -> (Vec<F>, Vec<F>) {
-    // Start computing vector of inverse_haystack
-    // First we need to iterate over all the possibilities for each operation
-    let haystack_xor = (0u8..=255)
-        .map(|i| {
-            let x = i & 0xf;
-            let y = i >> 4;
-            let z = x ^ y;
-            F::from(x) + r_xor * F::from(y) + r2_xor * F::from(z)
-        })
-        .collect::<Vec<_>>();
-    let haystack_s_box = (0u8..=255)
-        .map(|i| {
-            let x = i;
-            let y = aes::SBOX[x as usize];
-            F::from(x) + r_sbox * F::from(y)
-        })
-        .collect::<Vec<_>>();
-    let haystack_r2j = (0u8..=255)
-        .map(|i| {
-            let x = i;
-            let y = aes::RJ2[x as usize];
-            F::from(x) + r_rj2 * F::from(y)
-        })
-        .collect::<Vec<_>>();
-
     // Compute vector of inverse_haystack[i] = 1 / (haystack[i] + a) = h
-    let haystack = [haystack_xor, haystack_s_box, haystack_r2j].concat();
+    let haystack = [
+        haystack_xor(r_xor, r2_xor),
+        haystack_sbox(r_sbox),
+        haystack_rj2(r_rj2),
+    ]
+    .concat();
     let mut inverse_haystack = haystack
         .iter()
         .map(|x| lookup_challenge + x)
