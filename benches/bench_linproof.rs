@@ -30,8 +30,8 @@ fn bench_compressed_sigma(c: &mut Criterion) {
 
         b.iter(|| {
             // Let's prove!
-            let mut arthur = iop.to_arthur();
-            CompressedSigma::new(&mut arthur, &ck, &x_vec, &X_opening, &Y_opening, &a_vec).unwrap();
+            let mut merlin = iop.to_merlin();
+            CompressedSigma::new(&mut merlin, &ck, &x_vec, &X_opening, &Y_opening, &a_vec).unwrap();
         });
     });
 }
