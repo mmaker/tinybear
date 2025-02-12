@@ -7,17 +7,17 @@ authors = [
     "George Kadianakis <desnacked@riseup.net>"
 ]
 
-[patch.crates-io]
-ark-std = {git = "https://github.com/arkworks-rs/utils"}
-ark-ec = {git = "https://github.com/arkworks-rs/algebra"}
-ark-ff = {git = "https://github.com/arkworks-rs/algebra"}
-ark-curve25519 = {git = "https://github.com/arkworks-rs/curves"}
-ark-serialize= {git = "https://github.com/arkworks-rs/algebra"}
+# [patch.crates-io]
+# ark-std = {git = "https://github.com/arkworks-rs/utils"}
+# ark-ec = {git = "https://github.com/arkworks-rs/algebra"}
+# ark-ff = {git = "https://github.com/arkworks-rs/algebra"}
+# ark-curve25519 = {git = "https://github.com/arkworks-rs/curves"}
+# ark-serialize= {git = "https://github.com/arkworks-rs/algebra"}
 
 [dependencies]
-ark-ec = {version="0.4.2", features=["std", "parallel"]}
-ark-ff = {version="0.4.2", features=["asm", "std", "parallel"]}
-ark-serialize = "0.4.2"
+ark-ec = {version="0.5", features=["std", "parallel"]}
+ark-ff = {version="0.5", features=["asm", "std", "parallel"]}
+ark-serialize = "0.5"
 ark-std = {version="0.4.0", features=["std", "getrandom"]}
 nimue = {git="https://github.com/arkworks-rs/nimue.git", features = ["ark"] }
 rand = "0.8.5"
@@ -25,7 +25,7 @@ rand_chacha = "0.3.1"
 hex-literal = "0.4"
 
 [dev-dependencies]
-ark-curve25519 = "0.4.0"
+ark-curve25519 = "0.5.0"
 criterion = "0.5.1"
 hex = "0.4.3"
 

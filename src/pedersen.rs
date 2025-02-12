@@ -3,7 +3,7 @@ use std::ops::Mul;
 
 use super::umsm;
 use ark_ec::CurveGroup;
-use ark_std::UniformRand;
+use ark_ff::UniformRand;
 use rand::{CryptoRng, RngCore};
 
 pub struct CommitmentKey<G: CurveGroup> {

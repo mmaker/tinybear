@@ -4,7 +4,8 @@ use std::vec;
 
 use ark_ec::CurveGroup;
 use ark_serialize::CanonicalSerialize;
-use ark_std::{UniformRand, Zero};
+use ark_std::Zero;
+use ark_ff::UniformRand;
 use nimue::plugins::ark::*;
 use nimue::{DuplexHash, ProofError, ProofResult};
 

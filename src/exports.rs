@@ -1,5 +1,5 @@
 use ark_ec::CurveGroup;
-use ark_std::UniformRand;
+use ark_ff::UniformRand;
 use nimue::{Arthur, Merlin, ProofResult};
 use rand::{CryptoRng, RngCore};
 
