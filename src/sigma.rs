@@ -210,8 +210,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
             .collect::<Vec<_>>();
 
         // Do a sumcheck for <x', a'G + G'> = X + Y
-        let (challenges, tensorcheck_claim) =
-            crate::sumcheck::reduce(arthur, a_vec_prime.len(), *X + Y);
+        let (challenges, tensorcheck_claim) = sumcheck::reduce(arthur, a_vec_prime.len(), *X + Y);
         let [X_folded_com]: [G; 1] = arthur.next_points().unwrap();
 
         let challenges_vec = crate::linalg::tensor(&challenges);

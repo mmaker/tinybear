@@ -1,11 +1,8 @@
-use ark_ec::AffineRepr;
-use ark_ec::CurveGroup;
-use ark_ff::AdditiveGroup;
-use ark_ff::Zero;
-use ark_ff::{Field, PrimeField};
+use ark_ec::{AffineRepr, CurveGroup};
+use ark_ff::{AdditiveGroup, Field, PrimeField};
 use nimue::plugins::ark::*;
 use nimue::{Arthur, DuplexHash, IOPattern, Merlin};
-use std::ops::Mul;
+use std::ops
 
 use crate::pedersen::{self, CommitmentKey};
 use crate::traits::SumcheckIO;
@@ -30,7 +27,7 @@ where
 pub fn group_fold_inplace<G: CurveGroup>(f: &mut Vec<G::Affine>, r: G::ScalarField) {
     let half = (f.len() + 1) / 2;
     for i in 0..half {
-        f[i] = (f[i * 2] + f.get(i * 2 + 1).unwrap_or(&G::Affine::zero()).mul(r)).into();
+        f[i] = (f[i * 2] + f.get(i * 2 + 1).unwrap_or(&G::Affine::ZERO).mul(r)).into();
     }
     f.drain(half..);
 }
@@ -38,15 +35,15 @@ pub fn group_fold_inplace<G: CurveGroup>(f: &mut Vec<G::Affine>, r: G::ScalarFie
 pub fn fold_inplace<M: AdditiveGroup>(f: &mut Vec<M>, r: M::Scalar) {
     let half = (f.len() + 1) / 2;
     for i in 0..half {
-        f[i] = f[i * 2] + *f.get(i * 2 + 1).unwrap_or(&M::zero()) * r;
+        f[i] = f[i * 2] + *f.get(i * 2 + 1).unwrap_or(&M::ZERO) * r;
     }
     f.drain(half..);
 }
 
 /// Helper function for when we are doing a sumcheck between a vector of points and a vector of scalars
 pub fn group_round_message<G: CurveGroup>(f: &[G::ScalarField], g: &[G::Affine]) -> [G; 2] {
-    let f_zero = G::ScalarField::zero();
-    let g_zero = G::Affine::zero();
+    let f_zero = G::ScalarField::ZERO;
+    let g_zero = G::Affine::ZERO;
 
     let mut f_even = Vec::<G::ScalarField>::new();
     let mut g_even = Vec::<G::Affine>::new();
