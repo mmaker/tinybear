@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 authors = [
     "Michele Orrù <m@orru.net>",
-    "George Kadianakis <desnacked@riseup.net>"
+    "George Kadianakis <desnacked@riseup.net>",
+    "Eli Margolin <ecmargo@seas.upenn.edu>",
 ]
 
 # [patch.crates-io]
