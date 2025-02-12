@@ -1,6 +1,7 @@
+use hex_literal::hex;
 use nimue::plugins::ark::IOPattern;
 
-use crate::{aes, pedersen, TinybearIO};
+use crate::{pedersen, witness::registry, witness::trace::cipher, TinybearIO};
 
 type G = ark_curve25519::EdwardsProjective;
 // type F = ark_curve25519::Fr;
@@ -11,11 +12,11 @@ fn test_aes128() {
     let iop = TinybearIO::<G>::add_aes128_proof(iop);
 
     let mut merlin = iop.to_merlin();
-    let ck = pedersen::setup::<G>(merlin.rng(), crate::registry::AES128REG.witness_len * 2);
+    let ck = pedersen::setup::<G>(merlin.rng(), registry::AES128REG.witness_len * 2);
 
-    let message = *b"\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C\xE7";
-    let key = *b"\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C";
-    let ctx = aes::aes128(message, key);
+    let message: [u8; 16] = hex!("4A8F6DE2127BC934A55891FD23690CE7");
+    let key: [u8; 16] = hex!("E74A8F6DE2127BC934A55891FD23690C");
+    let ctx = cipher::aes128(message, key);
 
     let (message_commitment, message_opening) =
         crate::commit_aes128_message(merlin.rng(), &ck, message);
@@ -53,9 +54,9 @@ fn test_aes128ks() {
 
     let ck = pedersen::setup::<G>(
         merlin.rng(),
-        crate::registry::aes_keysch_offsets::<11, 4>().witness_len * 10,
+        registry::aes_keysch_offsets::<11, 4>().witness_len * 10,
     );
-    let key = *b"\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C";
+    let key = hex!("E74A8F6DE2127BC934A55891FD23690C");
 
     let (round_keys_com, key_opening) = crate::commit_aes128_key(merlin.rng(), &ck, &key);
     let proof_result = crate::aes128ks_prove(&mut merlin, &ck, key, key_opening);
@@ -72,15 +73,16 @@ fn test_aes128ks() {
 
 #[test]
 fn test_aes256() {
+    use hex_literal::hex;
     let iop = IOPattern::new("tinybear test aes256");
     let iop = TinybearIO::<G>::add_aes256_proof(iop);
     let mut merlin = iop.to_merlin();
 
-    let ck = pedersen::setup::<G>(merlin.rng(), crate::registry::AES256REG.witness_len * 3);
+    let ck = pedersen::setup::<G>(merlin.rng(), registry::AES256REG.witness_len * 3);
 
-    let message = *b"\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C\xE7";
-    let key = *b"\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C\xE7\x4A\x8F\x6D\xE2\x12\x7B\xC9\x34\xA5\x58\x91\xFD\x23\x69\x0C";
-    let ctx = aes::aes256(message, key);
+    let message: [u8; 16] = hex!("4A8F6DE2127BC934A55891FD23690CE7");
+    let key: [u8; 32] = hex!("E74A8F6DE2127BC934A55891FD23690CE74A8F6DE2127BC934A55891FD23690C");
+    let ctx = cipher::aes256(message, key);
 
     let (message_commitment, message_opening) =
         crate::commit_aes256_message(merlin.rng(), &ck, message);

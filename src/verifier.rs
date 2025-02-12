@@ -8,7 +8,7 @@ use nimue::{Arthur, ProofResult};
 use crate::linalg::powers;
 use crate::pedersen::CommitmentKey;
 use crate::traits::{Instance, LinProof};
-use crate::{constrain, linalg, lookup, registry, sigma, sumcheck};
+use crate::{constrain, linalg, lookup, sigma, sumcheck, witness::registry};
 
 pub fn aes_verify<G, LP: LinProof<G>, const R: usize>(
     arthur: &mut Arthur,
@@ -47,7 +47,6 @@ where
     let (s_vec, s_const) =
         instance.trace_to_needles_map(&ipa_twist_cs_vec, [c_xor, c_xor2, c_sbox, c_rj2]);
 
-    let ipa_cs_vec = linalg::tensor(&ipa_cs);
     let [c_q] = arthur.challenge_scalars().unwrap();
     let ipa_cs_c_q_vec = linalg::add_constant(&ipa_cs_vec, c_q);
 
@@ -63,9 +62,9 @@ where
     let (lin_sumcheck_chals, reduced_claim) = sumcheck::reduce(arthur, n, lin_claim);
 
     let lin_sumcheck_chals_vec = &linalg::tensor(&lin_sumcheck_chals)[..n];
-    let lin_h_fold = linalg::inner_product(&lin_sumcheck_chals_vec, &h_vec);
-    let lin_ipa_cs_c_q_fold = linalg::inner_product(&lin_sumcheck_chals_vec, &ipa_cs_c_q_vec);
-    let lin_s_fold = linalg::inner_product(&lin_sumcheck_chals_vec, &s_vec);
+    let lin_h_fold = linalg::inner_product(lin_sumcheck_chals_vec, &h_vec);
+    let lin_ipa_cs_c_q_fold = linalg::inner_product(lin_sumcheck_chals_vec, &ipa_cs_c_q_vec);
+    let lin_s_fold = linalg::inner_product(lin_sumcheck_chals_vec, &s_vec);
     let Z = instance.full_witness_com(&W);
     let [lin_M_fold, lin_Q_fold]: [G; 2] = arthur.next_points().unwrap();
     let lin_Z_fold =

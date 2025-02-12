@@ -4,7 +4,8 @@ use std::vec;
 
 use ark_ec::CurveGroup;
 use ark_serialize::CanonicalSerialize;
-use ark_std::{UniformRand, Zero};
+use ark_std::Zero;
+use ark_ff::UniformRand;
 use nimue::plugins::ark::*;
 use nimue::{DuplexHash, ProofError, ProofResult};
 
@@ -32,7 +33,7 @@ where
     }
 
     fn add_compressed_lin_proof(self, len: usize) -> Self {
-        self.add_sumcheck(len+1)
+        self.add_sumcheck(len + 1)
             .add_points(1, "folded f")
             .add_mul_proof()
     }
@@ -168,7 +169,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
         // Commit to the folded x_vec_prime
         let (X_folded_com, X_folded_com_opening) =
             commit_hiding(merlin.rng(), ck, &[x_vec_prime[0]]);
-            merlin.add_points(&[X_folded_com]).unwrap();
+        merlin.add_points(&[X_folded_com]).unwrap();
 
         let ipa_sumcheck_opening = sumcheck::reduce_with_challenges(&openings, &chals, *Y_opening);
 
@@ -210,7 +211,7 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
             .collect::<Vec<_>>();
 
         // Do a sumcheck for <x', a'G + G'> = X + Y
-        let (challenges, tensorcheck_claim) = crate::sumcheck::reduce(arthur, a_vec_prime.len(), *X + Y);
+        let (challenges, tensorcheck_claim) = sumcheck::reduce(arthur, a_vec_prime.len(), *X + Y);
         let [X_folded_com]: [G; 1] = arthur.next_points().unwrap();
 
         let challenges_vec = crate::linalg::tensor(&challenges);

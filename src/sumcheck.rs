@@ -1,11 +1,8 @@
-use std::ops::Mul;
-use ark_ec::CurveGroup;
-use ark_ff::AdditiveGroup;
-use ark_ff::Zero;
-use ark_ec::AffineRepr;
-use ark_ff::{Field, PrimeField};
+use ark_ec::{AffineRepr, CurveGroup};
+use ark_ff::{AdditiveGroup, Field, PrimeField};
 use nimue::plugins::ark::*;
 use nimue::{Arthur, DuplexHash, IOPattern, Merlin};
+use std::ops::Mul;
 
 use crate::pedersen::{self, CommitmentKey};
 use crate::traits::SumcheckIO;
@@ -35,18 +32,17 @@ pub fn group_fold_inplace<G: CurveGroup>(f: &mut Vec<G::Affine>, r: G::ScalarFie
     f.drain(half..);
 }
 
-
 pub fn fold_inplace<M: AdditiveGroup>(f: &mut Vec<M>, r: M::Scalar) {
     let half = (f.len() + 1) / 2;
     for i in 0..half {
-        f[i] = f[i * 2] + *f.get(i * 2 + 1).unwrap_or(&M::zero()) * r;
+        f[i] = f[i * 2] + *f.get(i * 2 + 1).unwrap_or(&M::ZERO) * r;
     }
     f.drain(half..);
 }
 
 /// Helper function for when we are doing a sumcheck between a vector of points and a vector of scalars
 pub fn group_round_message<G: CurveGroup>(f: &[G::ScalarField], g: &[G::Affine]) -> [G; 2] {
-    let f_zero = G::ScalarField::zero();
+    let f_zero = G::ScalarField::ZERO;
     let g_zero = G::Affine::zero();
 
     let mut f_even = Vec::<G::ScalarField>::new();
@@ -60,7 +56,6 @@ pub fn group_round_message<G: CurveGroup>(f: &[G::ScalarField], g: &[G::Affine])
         g_even.push(g_pair[0]);
         f_odd.push(*f_pair.get(1).unwrap_or(&f_zero));
         g_odd.push(*g_pair.get(1).unwrap_or(&g_zero));
-
     }
 
     let a = G::msm_unchecked(&g_even, &f_even);
@@ -159,7 +154,7 @@ pub fn batch_sumcheck<G: CurveGroup, const N: usize>(
         let [mut a, mut b] = round_message(f, g);
         for (claim, challenge) in claims[1..].iter_mut().zip(challenges.iter()) {
             let Claim(f, g) = claim;
-            let [claim_a, claim_b] = round_message(&f, &g);
+            let [claim_a, claim_b] = round_message(f, g);
             a += claim_a * challenge;
             b += claim_b * challenge;
         }
