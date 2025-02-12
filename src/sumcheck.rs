@@ -2,7 +2,7 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{AdditiveGroup, Field, PrimeField};
 use nimue::plugins::ark::*;
 use nimue::{Arthur, DuplexHash, IOPattern, Merlin};
-use std::ops
+use std::ops::Mul;
 
 use crate::pedersen::{self, CommitmentKey};
 use crate::traits::SumcheckIO;
@@ -27,7 +27,7 @@ where
 pub fn group_fold_inplace<G: CurveGroup>(f: &mut Vec<G::Affine>, r: G::ScalarField) {
     let half = (f.len() + 1) / 2;
     for i in 0..half {
-        f[i] = (f[i * 2] + f.get(i * 2 + 1).unwrap_or(&G::Affine::ZERO).mul(r)).into();
+        f[i] = (f[i * 2] + f.get(i * 2 + 1).unwrap_or(&G::Affine::zero()).mul(r)).into();
     }
     f.drain(half..);
 }
@@ -43,7 +43,7 @@ pub fn fold_inplace<M: AdditiveGroup>(f: &mut Vec<M>, r: M::Scalar) {
 /// Helper function for when we are doing a sumcheck between a vector of points and a vector of scalars
 pub fn group_round_message<G: CurveGroup>(f: &[G::ScalarField], g: &[G::Affine]) -> [G; 2] {
     let f_zero = G::ScalarField::ZERO;
-    let g_zero = G::Affine::ZERO;
+    let g_zero = G::Affine::zero();
 
     let mut f_even = Vec::<G::ScalarField>::new();
     let mut g_even = Vec::<G::Affine>::new();
