@@ -19,10 +19,10 @@ authors = [
 ark-ec = {version="0.5", features=["std", "parallel"]}
 ark-ff = {version="0.5", features=["asm", "std", "parallel"]}
 ark-serialize = "0.5"
-ark-std = {version="0.4.0", features=["std", "getrandom"]}
+ark-std = {version="0.5", features=["std", "getrandom"]}
 nimue = {git="https://github.com/arkworks-rs/nimue.git", features = ["ark"] }
 rand = "0.8.5"
-rand_chacha = "0.3.1"
+rand_chacha = "0.9"
 hex-literal = "0.4"
 
 [dev-dependencies]
