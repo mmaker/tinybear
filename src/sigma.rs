@@ -9,6 +9,9 @@ use ark_ff::UniformRand;
 use nimue::plugins::ark::*;
 use nimue::{DuplexHash, ProofError, ProofResult};
 
+#[cfg(feature="parallel")]
+use rayon::iter::{ParallelIterator, IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator};
+
 use crate::pedersen::commit_hiding;
 use crate::pedersen::CommitmentKey;
 use crate::sumcheck;
@@ -138,9 +141,9 @@ impl<G: CurveGroup> LinProof<G> for CompressedSigma<G> {
         let aG_vec_prime = ck.G.into().batch_mul(&a_vec_prime);
 
         // Compute <a' + G'>
-        let vec_aG_tmp = ark_std::cfg_iter!(aG_vec_prime)
-            .zip(G_vec_prime.iter())
-            .map(|(&aG, G_i)| (aG + G_i))
+        let vec_aG_tmp = ark_std::cfg_into_iter!(aG_vec_prime)
+            .zip(G_vec_prime)
+            .map(|(aG, G_i)| (aG + G_i))
             .collect::<Vec<G>>();
         let mut vec_aG = G::normalize_batch(&vec_aG_tmp);
 

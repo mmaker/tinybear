@@ -24,6 +24,7 @@ nimue = {git="https://github.com/arkworks-rs/nimue.git", features = ["ark"] }
 rand = "0.8.5"
 rand_chacha = "0.9"
 hex-literal = "0.4"
+rayon = { version = "1.10.0", optional = true }
 
 [dev-dependencies]
 ark-curve25519 = "0.5.0"
@@ -32,7 +33,8 @@ hex = "0.4.3"
 
 
 [features]
-parallel = ["ark-ec/parallel", "ark-ff/parallel"]
+parallel = ["ark-ec/parallel", "ark-ff/parallel", "rayon"]
+rayon = ["dep:rayon"]
 
 [[bench]]
 harness = false
